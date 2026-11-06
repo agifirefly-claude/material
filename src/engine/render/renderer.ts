@@ -201,6 +201,9 @@ export class Renderer {
     if (stack.has(ref.key)) return { target: null, sig: "cycle" };
     stack.add(ref.key);
     try {
+      // textures something else provides (baked mesh maps, painted layers)
+      const ext = (g as unknown as { externalTarget?: (r: Renderer, slot: string) => Resolved | null }).externalTarget?.(this, ref.slot);
+      if (ext) return ext;
       if (g instanceof GenBuffer) return this.renderBuffer(g, stack);
       if (g instanceof GenIterateBuffer) return this.renderIterateBuffer(g, stack);
       if (g instanceof GenImage) return this.imageTexture(g);

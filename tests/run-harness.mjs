@@ -74,6 +74,18 @@ if (mode === "shot") {
   fs.writeFileSync(file, Buffer.from(url.split(",")[1], "base64"));
   console.log("wrote", file);
 }
+/* ---------- mesh maps and painting ---------- */
+if (mode === "bake" || mode === "paint") {
+  const dir = process.argv[3] ?? ".";
+  fs.mkdirSync(dir, { recursive: true });
+  const r = mode === "bake" ? await page.evaluate(() => window.bakeMaps(256, 16)) : await page.evaluate(() => window.paintTest(256));
+  for (const [k, v] of Object.entries(r)) {
+    if (typeof v === "string" && v.startsWith("data:image/png")) {
+      fs.writeFileSync(`${dir}/${mode}_${k}.png`, Buffer.from(v.split(",")[1], "base64"));
+      console.log("wrote", `${dir}/${mode}_${k}.png`);
+    } else console.log(k, JSON.stringify(v).slice(0, 2000));
+  }
+}
 await browser.close();
 await server.close();
 process.exit(failed ? 1 : 0);

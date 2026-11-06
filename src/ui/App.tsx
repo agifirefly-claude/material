@@ -12,6 +12,8 @@ import { raymarchPreviewSupported } from "../engine/preview3d";
 import { PreviewRay } from "./PreviewRay";
 import { newProject } from "../engine/loader";
 import { registry } from "../engine/registry";
+import { paint, usePaint } from "./paint/paintStore";
+import { NewPaintDialog, PaintMenuItems, PaintWorkspace } from "./paint/PaintWorkspace";
 
 function Menu({ label, children }: { label: string; children: (close: () => void) => React.ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -64,6 +66,8 @@ export function App() {
   useEditor();
   const [examples, setExamples] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [newPaint, setNewPaint] = useState(false);
+  usePaint();
   const [view, setView] = useState<"2d" | "3d">("3d");
   const [toast, setToast] = useState("");
   useEffect(() => {
@@ -122,6 +126,7 @@ export function App() {
                   Export maps at {s}×{s}
                 </button>
               ))}
+              <PaintMenuItems close={close} onNew={() => setNewPaint(true)} />
             </>
           )}
         </Menu>
@@ -152,6 +157,9 @@ export function App() {
           ↷
         </button>
       </div>
+      {paint.project ? (
+        <PaintWorkspace />
+      ) : (
       <div className="main">
         <div className="panel left">
           <Library />
@@ -176,6 +184,7 @@ export function App() {
           <Inspector />
         </div>
       </div>
+      )}
       <div className="statusbar">
         <span>
           {registry.library.length} library nodes · {Object.keys(registry.nodes).length} node definitions
@@ -186,6 +195,7 @@ export function App() {
       </div>
       {examples && <Examples onClose={() => setExamples(false)} />}
       {exporting && <ExportDialog onClose={() => setExporting(false)} />}
+      {newPaint && <NewPaintDialog onClose={() => setNewPaint(false)} />}
       {toast && <div className="toast">{toast}</div>}
     </div>
   );

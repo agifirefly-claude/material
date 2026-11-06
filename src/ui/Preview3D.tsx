@@ -9,6 +9,8 @@ import { editor, useEditor } from "./store";
 import { findMaterial, previewMaps } from "./materialMaps";
 import { previews } from "./previews";
 import { isColor } from "../engine/params/types";
+import { setCurrentMesh } from "../engine/paint/mesh";
+import { geometryToPaintMesh } from "./paint/meshes";
 
 const MESHES = {
   sphere: () => new THREE.SphereGeometry(1, 192, 96),
@@ -152,6 +154,9 @@ export function Preview3D({ active }: { active: boolean }) {
     const geo = mesh === "custom" ? custom! : MESHES[mesh]();
     geo.setAttribute("uv1", geo.attributes.uv);
     t.mesh.geometry = geo;
+    // the mesh shown here is the one Mesh Map nodes bake their maps from (MMGenGraph.current_mesh)
+    setCurrentMesh(geometryToPaintMesh(geo, mesh));
+    editor.emit();
   }, [mesh, custom]);
 
   useEffect(() => {

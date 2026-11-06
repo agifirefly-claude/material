@@ -309,3 +309,132 @@ window.renderSdf = async (output: number, size: number) => {
   c.getContext("2d")!.putImageData(r.toImageData(t), 0, 0);
   return c.toDataURL("image/png");
 };
+
+/* ---------- mesh maps and painting (src/engine/paint) ---------- */
+import { sphereMesh, setCurrentMesh } from "../src/engine/paint/mesh";
+import { BAKE_SETTINGS, mapGeneratorFor, type MapName } from "../src/engine/paint/mapgen";
+import { installMeshMaps } from "../src/engine/paint/meshmaps";
+import { PaintProject, findFile, unpackFiles } from "../src/engine/paint/project";
+import { gpuFor } from "../src/engine/paint/gpu";
+import type { Target } from "../src/engine/render/renderer";
+declare global {
+  interface Window {
+    bakeMaps: (size: number, rays: number) => Promise<Record<string, string>>;
+    paintTest: (size: number) => Promise<Record<string, unknown>>;
+  }
+}
+function targetUrl(r: Renderer, t: Target, scale = 1, offset = 0): string {
+  const px = gpuFor(r).read(t);
+  const d = new Uint8ClampedArray(px.length);
+  for (let i = 0; i < px.length; i++) d[i] = Math.round(Math.min(1, Math.max(0, i % 4 === 3 ? px[i] : px[i] * scale + offset)) * 255);
+  const c = document.createElement("canvas");
+  c.width = c.height = t.size;
+  c.getContext("2d")!.putImageData(new ImageData(d, t.size, t.size), 0, 0);
+  return c.toDataURL("image/png");
+}
+/** bakes every map of a sphere, and renders a Mesh Map node through the node path */
+window.bakeMaps = async (size, rays) => {
+  const r = await rp;
+  installMeshMaps();
+  BAKE_SETTINGS.ray_count = rays;
+  const m = sphereMesh(1, 48, 24);
+  const mg = mapGeneratorFor(r);
+  const out: Record<string, string> = {};
+  for (const map of ["seams", "position", "normal", "tangent", "curvature", "ambient_occlusion", "bent_normals", "thickness", "adjacency"] as MapName[]) {
+    const t = mg.get(m, map, size);
+    out[map] = targetUrl(r, t, map === "curvature" ? 0.25 : 1, map === "curvature" ? 0.5 : 0);
+  }
+  setCurrentMesh(m);
+  const g = new GenGraph();
+  const mm = createGen({ type: "meshmap", parameters: { map: 1 } })!;
+  g.addGenerator(mm);
+  const res = r.render(mm.getShaderCode("uv", 0, new GenContext()), size);
+  out.meshmap_node_normal = targetUrl(r, res);
+  // curvature sign on a convex mesh
+  const px = gpuFor(r).read(mg.get(m, "curvature", size));
+  let pos = 0,
+    neg = 0;
+  for (let i = 0; i < px.length; i += 4) if (px[i + 3] > 0) px[i] > 0 ? pos++ : px[i] < 0 ? neg++ : 0;
+  out.curvature_sign = `${pos} positive, ${neg} negative`;
+  return out;
+};
+/** a paint project on a sphere: strokes with library brushes, undo, a mask layer, save and load */
+window.paintTest = async (size) => {
+  const r = await rp;
+  installMeshMaps();
+  const brushes = await fetch("/public/data/brushes.json").then((x) => x.json());
+  const byName = (n: string) => brushes.find((b: { tree_item: string }) => b.tree_item === n);
+  const m = sphereMesh(1, 48, 24);
+  const p = new PaintProject(r, m, null);
+  p.setSettings({ texture_size: Math.log2(size) });
+  p.initProject();
+  const f = 1 / Math.tan((35 * Math.PI) / 360),
+    near = 0.1,
+    far = 10;
+  const proj = [f, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) / (near - far), -1, 0, 0, (2 * far * near) / (near - far), 0];
+  const view = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -4, 1];
+  const mul = (a: number[], b: number[]) => {
+    const o = new Array(16).fill(0);
+    for (let c = 0; c < 4; c++) for (let rr = 0; rr < 4; rr++) for (let k = 0; k < 4; k++) o[c * 4 + rr] += a[k * 4 + rr] * b[c * 4 + k];
+    return o;
+  };
+  p.painter.setView(mul(proj, view), [256, 256]);
+  const out: Record<string, unknown> = {};
+  const errors: Record<string, string> = {};
+  for (const b of brushes) {
+    p.setBrush(b);
+    const e = p.painter.checkBrush();
+    if (e) errors[b.tree_item] = e;
+  }
+  out.brushes = brushes.length;
+  out.brushErrors = errors;
+  p.setBrush(byName("Simple/Uniform"));
+  p.brushRemote!.setParameter("param1", { r: 1, g: 0, b: 0, a: 1 });
+  p.brushChanged();
+  p.painter.params.brush_size = 60;
+  for (let i = 0; i <= 10; i++) p.paint({ brush_pos: [60 + i * 14, 128], brush_ppos: [60 + Math.max(0, i - 1) * 14, 128], rect_size: [256, 256] }, i === 10);
+  out.uv_at_center = p.painter.viewToTexture(128, 128);
+  out.after_stroke = targetUrl(r, p.compositor.maps.albedo!);
+  p.setBrush(byName("Material/Wood"));
+  p.painter.params.brush_size = 80;
+  for (let i = 0; i <= 6; i++) p.paint({ brush_pos: [128, 40 + i * 30], brush_ppos: [128, 40 + Math.max(0, i - 1) * 30], rect_size: [256, 256] }, i === 6);
+  out.after_second = targetUrl(r, p.compositor.maps.albedo!);
+  out.second_roughness = targetUrl(r, p.compositor.maps.roughness!);
+  p.undo();
+  out.after_undo = targetUrl(r, p.compositor.maps.albedo!);
+  p.selectLayer(p.layers[0]);
+  p.addLayer(2);
+  p.setBrush(byName("Simple/Uniform"));
+  p.painter.params.brush_size = 100;
+  p.paint({ brush_pos: [128, 128], brush_ppos: [128, 128], rect_size: [256, 256] }, true);
+  out.with_mask = targetUrl(r, p.compositor.maps.albedo!);
+  out.brush_preview_ok = !!p.painter.brushPreview([128, 128], [128, 128]);
+  // a procedural layer filled by a brush
+  p.addLayer(1);
+  p.setBrush(byName("Material/Marble"));
+  p.brushChanged();
+  out.with_procedural = targetUrl(r, p.compositor.maps.albedo!);
+  const zip = p.save("test");
+  const files = unpackFiles([{ name: "test.zip", data: zip }]);
+  out.files = [...files.keys()];
+  const data = JSON.parse(new TextDecoder().decode(findFile(files, "test.mmpp")!));
+  out.layers = data.layers.map((l: { name: string; type: number; layers?: unknown[] }) => [l.name, l.type, l.layers?.length ?? 0]);
+  const q = new PaintProject(r, m, null);
+  await q.loadLayers(data, async (name) => {
+    const bytes = findFile(files, name);
+    if (!bytes) return null;
+    const bmp = await createImageBitmap(new Blob([bytes as BlobPart], { type: "image/png" }));
+    const c = document.createElement("canvas");
+    c.width = bmp.width;
+    c.height = bmp.height;
+    const ctx = c.getContext("2d")!;
+    ctx.drawImage(bmp, 0, 0);
+    const id = ctx.getImageData(0, 0, c.width, c.height);
+    return { width: c.width, height: c.height, data: Float32Array.from(id.data, (v) => v / 255) };
+  });
+  out.reloaded = targetUrl(r, q.compositor.maps.albedo!);
+  // the export graph (export.gd): the maps through the material node
+  const { material } = p.exportGraph();
+  out.export_albedo = targetUrl(r, r.render(material.getShaderCode("uv", 0, new GenContext()), size));
+  return out;
+};
