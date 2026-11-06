@@ -202,7 +202,7 @@ export function PaintView() {
       const keys = MAPS.filter((k) => p.compositor.maps[k]);
       const sizes = keys.map((k) => p.compositor.maps[k]!.size);
       // flipped: the view's textures have v = 0 at the top (as the canvases they replace had)
-      const bytes = await p.gpu.readBytesAsync(keys.map((k) => p.compositor.maps[k]!),true,true);
+      const bytes = await p.gpu.readBytesAsync(keys.map((k) => p.compositor.maps[k]!), true, true);
       if (state.current !== st) return;
       {
         keys.forEach((k, i) => {

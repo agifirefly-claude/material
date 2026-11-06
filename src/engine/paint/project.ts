@@ -13,6 +13,7 @@ import { mapGeneratorFor } from "./mapgen";
 import { setCurrentMesh, type PaintMesh } from "./mesh";
 import { Painter, type PaintOptions } from "./painter";
 import { encodePixels } from "./png";
+import { paintWorker } from "./paint-client";
 export { pngEncode } from "./png";
 
 export interface PaintSettings {
@@ -592,6 +593,7 @@ export class PaintProject {
     this.compositor.dispose();
     this.renderer.deleteTarget(this.idMap);
     mapGeneratorFor(this.renderer).forget(this.mesh);
+    paintWorker.forget(this.mesh);
   }
 }
 
