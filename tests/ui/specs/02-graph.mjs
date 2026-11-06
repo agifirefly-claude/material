@@ -5,7 +5,7 @@ const links = (page) => ed(page, (e) => e.graph.connections.map((c) => `${c.from
 const names = (page) => ed(page, (e) => e.graph.children.map((c) => c.name).sort());
 const undo = (page) => page.keyboard.press("Control+z");
 const redo = (page) => page.keyboard.press("Control+Shift+z");
-/** the editor records an undo step once changes pause for 350 ms; a person's next action comes later than that */
+/** the editor records an undo step once changes pause for 350 ms (or at the next key or click outside a text field) */
 const pause = (page) => page.waitForTimeout(450);
 /** clicks a point of a link that is not covered by a node */
 async function clickEdge(page, id, button = "left") {
@@ -99,14 +99,14 @@ export const tests = [
       await select(page, perlin);
       await page.keyboard.press("Control+c");
       await page.keyboard.press("Control+v");
-      await until(async () => (await names(page)).length === start.length + 1, "pasted");
-      await pause(page);
-      const pasted = (await names(page)).find((n) => !start.includes(n));
-      eq(await ed(page, (e, n) => e.graph.getNode(n).getTypeName(), pasted), "Value Noise", "the paste is a Value Noise");
-      eq(await ed(page, (e) => e.selection), [pasted], "the paste is selected");
-      // duplicate
+      // paste reads the clipboard asynchronously: wait for it frame by frame, then duplicate right away, well within
+      // the 350 ms that would merge the two into one undo step without the action boundary
+      await page.waitForFunction((n) => window.mmEditor.graph.children.length === n, start.length + 1, { polling: "raf" });
       await page.keyboard.press("Control+d");
-      await until(async () => (await names(page)).length === start.length + 2, "duplicated");
+      await until(async () => (await names(page)).length === start.length + 2, "pasted and duplicated");
+      const added = (await names(page)).filter((n) => !start.includes(n));
+      for (const n of added) eq(await ed(page, (e, n) => e.graph.getNode(n).getTypeName(), n), "Value Noise", "the copies are Value Noise");
+      eq((await ed(page, (e) => e.selection)).length, 1, "the duplicate is selected");
       await pause(page);
       await undo(page);
       await until(async () => (await names(page)).length === start.length + 1, "undo the duplicate");

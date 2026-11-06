@@ -214,7 +214,25 @@ class Editor {
   }
 
   /* ----- undo ----- */
+  /** Changes are recorded 350 ms after the last one, so a drag or a run of keystrokes is one step. A new user
+   * action (a pointer press, or a key outside a text field) closes the pending step first, so two actions done
+   * quickly one after the other (paste then duplicate) stay two steps. */
+  private boundaryListening = false;
+  private listenForActionBoundaries() {
+    if (this.boundaryListening || typeof window === "undefined") return;
+    this.boundaryListening = true;
+    const close = (e: Event) => {
+      if (!this.snapshotTimer) return;
+      const el = e.target as HTMLElement | null;
+      if (e.type === "keydown" && el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      clearTimeout(this.snapshotTimer);
+      this.snapshot();
+    };
+    window.addEventListener("pointerdown", close, true);
+    window.addEventListener("keydown", close, true);
+  }
   private scheduleSnapshot() {
+    this.listenForActionBoundaries();
     if (this.snapshotTimer) clearTimeout(this.snapshotTimer);
     this.snapshotTimer = setTimeout(() => this.snapshot(), 350);
   }
