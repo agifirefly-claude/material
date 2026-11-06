@@ -10,6 +10,7 @@ import { ParamControl, paramLabel } from "./widgets/ParamControl";
 import { PreviewCanvas } from "./PreviewCanvas";
 import { editor, useEditor } from "./store";
 import { t, tDesc, useLang } from "./i18n";
+import { TonesEditor, isTones } from "./Tones";
 
 export type NodeData = { gen: Gen };
 
@@ -107,7 +108,8 @@ function MMNodeInner({ id, data, selected }: NodeProps & { data: NodeData }) {
         </div>
       </div>
       {rows === 0 && <div style={{ height: 4 }} />}
-      {!g.minimized && params.length > 0 && (
+      {!g.minimized && isTones(g) && <TonesEditor gen={g} />}
+      {!g.minimized && params.length > 0 && !isTones(g) && (
         <div className="params">
           {params.map((p) => (
             <ParamRow key={p.name} g={g} name={p.name} />

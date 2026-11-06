@@ -192,6 +192,9 @@ export class Renderer {
 
   /* ---------- resolving samplers ---------- */
   private resolve(ref: TextureRef, stack: Set<string>): Resolved {
+    // a texture the caller already has (TAA accumulation, ...)
+    const direct = (ref as TextureRef & { target?: Target }).target;
+    if (direct) return { target: direct, sig: ref.key };
     if (!(ref instanceof GenTextureRef)) return { target: null, sig: "none" };
     const g = ref.gen;
     if (g instanceof GenIterateBuffer && ref.slot === "_loop_tex") {
@@ -413,8 +416,12 @@ export class Renderer {
 
   /* ---------- drawing ---------- */
   private dummy: Target | null = null;
-  private draw(built: BuiltShader, values: Map<string, unknown>, target: Target): void {
+  private draw(built: BuiltShader, values: Map<string, unknown>, target: Target, blend = false): void {
     const gl = this.gl;
+    if (blend) {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE);
+    }
     const { program, locations } = this.program(built.source);
     gl.useProgram(program);
     gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo);
@@ -466,6 +473,7 @@ export class Renderer {
     gl.bindVertexArray(this.vao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     this.stats.renders++;
+    if (blend) gl.disable(gl.BLEND);
     if (target.mipmap) {
       gl.bindTexture(gl.TEXTURE_2D, target.tex);
       gl.generateMipmap(gl.TEXTURE_2D);
@@ -481,6 +489,20 @@ export class Renderer {
     if (err) throw err;
     if (!opts.key) this.cache.delete(key);
     return r.target!;
+  }
+
+  /** renders into a target the caller owns, without caching; `add` sums onto what is there (accumulation) */
+  renderInto(sc: ShaderCode, target: Target, add = false): void {
+    const built = buildFragmentShader(sc);
+    const deps = this.resolveUniforms(built.uniforms, new Set());
+    this.draw(built, deps.values, target, add);
+  }
+  clearTarget(t: Target): void {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo);
+    gl.viewport(0, 0, t.size, t.size);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
   }
 
   /** the texture a sampler uniform refers to (a buffer, an image...), rendered if needed */

@@ -31,6 +31,7 @@ import { createConnected, createFromLibrary, type QuickConnect } from "./graph/c
 import * as act from "./graph/actions";
 import { openDialog } from "./dialogs/bus";
 import { t, tDesc, useLang } from "./i18n";
+import { dropFiles, hasFiles } from "./fileDrop";
 
 const nodeTypes = { mm: MMNode, comment: CommentNode, commentLine: CommentLineNode };
 export const LIB_MIME = "application/x-material-pro-node";
@@ -292,12 +293,17 @@ function GraphInner() {
       ref={wrap}
       style={{ flex: 1, minHeight: 0, position: "relative" }}
       onDragOver={(e) => {
-        if (e.dataTransfer.types.includes(LIB_MIME)) {
+        if (e.dataTransfer.types.includes(LIB_MIME) || hasFiles(e)) {
           e.preventDefault();
           e.dataTransfer.dropEffect = "copy";
         }
       }}
       onDrop={(e) => {
+        if (hasFiles(e)) {
+          e.preventDefault();
+          dropFiles(e, rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+          return;
+        }
         const d = e.dataTransfer.getData(LIB_MIME);
         if (!d) return;
         e.preventDefault();
