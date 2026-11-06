@@ -108,7 +108,22 @@ describe("MM #204: decimal comma in number fields", () => {
 describe("MM #1137, #528, #1205: node data fixes", () => {
   const node = (n: string) => JSON.stringify(read("nodes.json")[n] ?? read("nodes.json").find?.((d: { name?: string }) => d.name === n));
   it("Tiler picks odd rows without relying on an exact mod", () => {
-    expect(node("tiler")).toContain("mod(floor(mod(tile_index.y+0.5, tile.y)), 2.0)");
+    expect(node("tiler")).toContain("floor(mod(floor(mod(tile_index.y+0.5, tile.y))+0.5, 2.0))");
+    // GPUs divide as x * rcp(y), and rcp may be a few ULP off: model that in float32
+    const f = Math.fround;
+    const gpuMod = (e: number) => (x: number, y: number) => f(x - f(y * Math.floor(f(x * f(f(1 / y) * (1 + e * 2 ** -23))))));
+    const fixed = (m: ReturnType<typeof gpuMod>, y: number, t: number) => Math.floor(m(Math.floor(m(y + 0.5, t)) + 0.5, 2));
+    const old = (m: ReturnType<typeof gpuMod>, y: number, t: number) => m(m(y, t), 2);
+    let oldWrong = 0;
+    for (const e of [-3, -2, -1, 0, 1, 2, 3]) {
+      const m = gpuMod(e);
+      for (let t = 1; t <= 64; t++)
+        for (let y = 0; y < 256; y++) {
+          expect(fixed(m, y, t), `row ${y} of ${t}, rcp off by ${e} ulp`).toBe((y % t) % 2);
+          if (old(m, y, t) !== (y % t) % 2) oldWrong++;
+        }
+    }
+    expect(oldWrong).toBeGreaterThan(0); // the model does reproduce #1137
   });
   it("Dodge clamps when the blend input is 1 or more", () => {
     expect(node("blend")).toContain("(c1>=1.0)?1.0:");

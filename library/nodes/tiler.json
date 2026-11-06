@@ -60,7 +60,7 @@
 			"\t\t\tvec2 seed = rand2(pos+_seed);",
 			"\t\t\trc1 = rand3(seed);",
 			"\t\t\tvec2 tile_index = floor(uv * tile) + vec2(float(dx), float(dy));",
-			"\t\t\tpos += vec2(($fixed_offset/tile.x)*mod(floor(mod(tile_index.y+0.5, tile.y)), 2.0), 0.0)+$offset*seed/tile;",
+			"\t\t\tpos += vec2(($fixed_offset/tile.x)*floor(mod(floor(mod(tile_index.y+0.5, tile.y))+0.5, 2.0)), 0.0)+$offset*seed/tile;",
 			"\t\t\tfloat mask = $mask(fract(pos+vec2(0.5)));",
 			"\t\t\tif (mask > 0.01) {",
 			"\t\t\t\tvec2 pv = fract(uv - pos)-vec2(0.5);",

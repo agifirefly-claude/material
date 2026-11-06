@@ -96,7 +96,7 @@ UE5 配置生成的 `bricks.py` 先 `sys.path.append('$(material_maker_path)/exp
 
 节点库解耦后，这三处直接改在 `library/nodes/` 里：
 
-- **Tiler 固定偏移在奇数行时错行**（#1137）。`tiler` 的 `instance` 用 `mod(mod(tile_index.y, tile.y), 2.0)` 判断奇偶行。GPU 除法不精确时，`mod(9.0, 9.0)` 可能得到 9 而不是 0，原报告里出错的正好是 5、9、13 行。改为 `mod(floor(mod(tile_index.y+0.5, tile.y)), 2.0)`：整数加 0.5 后再取整，不受除法误差影响。无头 Chromium 用软件渲染，复现不了这个误差，所以还没在真实 GPU 上验证。
+- **Tiler 固定偏移在奇数行时错行**（#1137）。`tiler` 的 `instance` 用 `mod(mod(tile_index.y, tile.y), 2.0)` 判断奇偶行。GPU 的除法是 `x * rcp(y)`，`rcp` 可能差几个 ULP，于是 `mod(9.0, 9.0)` 可能得到 9 而不是 0，原报告里出错的正好是 5、9、13 行。改为 `floor(mod(floor(mod(tile_index.y+0.5, tile.y))+0.5, 2.0))`：两次取模的被除数都离整数边界 0.5，除法误差不会让结果跨过边界。没有真实 GPU，改用单元测试模拟：按 float32 计算、`rcp` 偏差 −3 到 +3 个 ULP，行号 0–255、行数 1–64 全部正确；同一模型下原写法会出错，说明模型确实能复现这个问题。
 - **Blend 的 Dodge 在输入大于 1 时出现色带**（#528）。`blend_dodge_f` 只在 `c1 == 1.0` 时特判，`c1 > 1` 时会除以负数。改为 `(c1>=1.0)?1.0:min(c2/(1.0-c1),1.0)`。`blend2` 共用这个函数。
 - **Godot 4 ORM 的贴图读不到**（#1205）。`material`、`material_tesselated` 的 Godot 4 ORM 模板头部是 `format=3`，资源引用却是 Godot 3 写法。改为 `type="Texture2D" id="N"` 和 `ExtResource("N")`。还需要在本地 Godot 4 里确认，步骤见 [本地验证](本地验证.md)。
 
