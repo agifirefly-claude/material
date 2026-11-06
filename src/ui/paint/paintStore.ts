@@ -3,7 +3,8 @@
 import { useSyncExternalStore } from "react";
 import { editor } from "../store";
 import { PaintProject, findFile, unpackFiles, type Float32ArrayImage, type ModelFile } from "../../engine/paint/project";
-import { installMeshMaps } from "../../engine/paint/meshmaps";
+import { installMeshMaps, meshMapBaked } from "../../engine/paint/meshmaps";
+import { encodePngAsync } from "../../engine/paint/paint-client";
 import type { PaintMesh } from "../../engine/paint/mesh";
 import type { Dict } from "../../engine/gen/base";
 import type { LibraryItem } from "../../engine/registry";
@@ -64,7 +65,15 @@ class PaintState {
     this.emit();
   }
 
+  /** the mesh maps painting needs are being baked (in the paint worker) */
+  baking = false;
+
   constructor() {
+    // Mesh Map nodes baked in the background: draw what used them again
+    meshMapBaked.add(() => {
+      this.project?.brushChanged();
+      editor.emit();
+    });
     // switching tabs switches the paint workspace on or off and the brush graph shown
     editor.subscribe(() => this.sync());
     editor.addTabHooks({
@@ -90,7 +99,22 @@ class PaintState {
 
   /** opens a paint project in a new tab (create_paint_project / do_load_painting) */
   private async open(project: PaintProject) {
-    installMeshMaps();
+    installMeshMaps({ background: true });
+    // the editor composites asynchronously and bakes mesh maps in the paint worker: the page keeps running
+    project.deferComposite = true;
+    project.painter.backgroundMaps = true;
+    project.painter.onMapsReady = () => {
+      this.baking = false;
+      // a procedural layer is filled once the maps are there
+      project.brushChanged();
+      project.update();
+      this.setStatus("");
+      this.emit();
+    };
+    if (!project.painter.ready()) {
+      this.baking = true;
+      this.setStatus(t("Baking mesh maps…"));
+    }
     await this.loadBrushes();
     if (!project.brushGraph) project.setBrush(this.brushes.find((b) => b.tree_item === "Simple/Uniform") ?? this.brushes[0], false);
     project.onChange(() => {
@@ -139,11 +163,18 @@ class PaintState {
     editor.closeProject(i, () => newProject());
   }
 
-  save() {
+  /** saves without stalling the page: the layers are read asynchronously, PNGs encoded in the paint worker */
+  async save() {
     const p = this.project;
     if (!p) return;
-    const zip = p.save(p.title);
-    downloadBlob(new Blob([zip as BlobPart], { type: "application/zip" }), `${p.title}.mmpp.zip`);
+    this.setStatus(t("Saving {0}…", p.title));
+    try {
+      const zip = await p.saveAsync(p.title, (tex) => encodePngAsync(p.renderer, tex));
+      downloadBlob(new Blob([zip as BlobPart], { type: "application/zip" }), `${p.title}.mmpp.zip`);
+      this.setStatus("");
+    } catch (e) {
+      this.setStatus(t("Cannot save {0}: {1}", p.title, (e as Error).message));
+    }
     this.emit();
   }
 

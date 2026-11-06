@@ -581,5 +581,7 @@ export const EXTRA: Record<string, Record<string, string>> = {
     "Search the manual": "搜索手册",
     "Cannot load the manual: {0}": "无法加载手册：{0}",
     "Nothing found": "没有找到",
+    "Saving {0}…": "正在保存 {0}…",
+    "Baking mesh maps…": "正在烘焙网格贴图…",
   },
 };

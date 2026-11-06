@@ -1,17 +1,19 @@
 /* A paint project (material_maker/panels/paint/paint.gd without its UI): a mesh, a stack of layers painted with
  * brushes, the composited material maps, stroke history, and the .mmpp file format. */
-import { unzipSync, zipSync, zlibSync } from "fflate";
+import { unzipSync, zip, zipSync } from "fflate";
 import type { Dict, Gen } from "../gen/base";
 import { GenGraph } from "../gen/graph";
 import { GenMaterial } from "../gen/misc";
 import { GenTexture } from "../gen/texture";
 import { loadProject } from "../loader";
 import type { Renderer, Target } from "../render/renderer";
-import { GLSL_HEADER, Gpu, gpuFor } from "./gpu";
+import { GLSL_HEADER, Gpu, gpuFor, waitSync } from "./gpu";
 import { CHANNELS, Compositor, LAYER_MASK, LAYER_PAINT, LAYER_PROC, Layer, allLayers, findParentArray, layerData, unusedLayerIndex, type MapChannel } from "./layers";
 import { mapGeneratorFor } from "./mapgen";
 import { setCurrentMesh, type PaintMesh } from "./mesh";
 import { Painter, type PaintOptions } from "./painter";
+import { encodePixels } from "./png";
+export { pngEncode } from "./png";
 
 export interface PaintSettings {
   /** exponent: the texture size is 2^texture_size */
@@ -285,25 +287,82 @@ export class PaintProject {
   /* ---------- painting ---------- */
   /** a dab or a segment of the current stroke; at the end of a stroke it goes in the history */
   paint(o: PaintOptions, endOfStroke = false) {
-    if (!this.selected || this.selected.type === LAYER_PROC) return;
+    if (!this.selected || this.selected.type === LAYER_PROC || !this.painter.ready()) return;
     const painted = this.painter.paint(o, endOfStroke);
     if (endOfStroke) this.pushHistory(this.selected, painted);
     this.update();
     this.needSave = true;
   }
   fill(erase: boolean) {
-    if (!this.selected || this.selected.type === LAYER_PROC) return;
+    if (!this.selected || this.selected.type === LAYER_PROC || !this.painter.ready()) return;
     const painted = this.painter.fill(erase);
     this.pushHistory(this.selected, painted);
     this.update();
     this.changed();
   }
 
-  /** recomposites the maps */
+  /** recomposites the maps; with deferComposite, only marks them out of date (see compositeAsync) */
   update() {
-    this.compositor.composite(this.layers, this.size, this.settings);
+    if (this.deferComposite) this.compositeDirty = true;
+    else {
+      this.finishComposite();
+      this.compositor.composite(this.layers, this.size, this.settings);
+    }
     this.version++;
     for (const l of this.listeners) l();
+  }
+
+  /** the editor composites in compositeAsync (once per frame at most, without waiting for the GPU); whatever reads
+   *  compositor.maps then calls flushComposite first */
+  deferComposite = false;
+  private compositeDirty = false;
+  private compositing: Generator<void, void> | null = null;
+  private finishComposite() {
+    const c = this.compositing;
+    this.compositing = null;
+    if (c) while (!c.next().done);
+  }
+  /** brings compositor.maps up to date now */
+  flushComposite() {
+    this.finishComposite();
+    if (!this.compositeDirty) return;
+    this.compositeDirty = false;
+    this.compositor.composite(this.layers, this.size, this.settings);
+  }
+  /** brings compositor.maps up to date a layer at a time, the GPU working while the page goes on (at most one step
+   *  queued ahead of it); resolves once the GPU has finished them, true if they changed */
+  compositeAsync(): Promise<boolean> {
+    this.compositeRun ??= this.runComposite().finally(() => (this.compositeRun = null));
+    return this.compositeRun;
+  }
+  private compositeRun: Promise<boolean> | null = null;
+  private async runComposite(): Promise<boolean> {
+    const gl = this.gpu.gl;
+    let changed = false;
+    let prev: WebGLSync | null = null;
+    const settle = async (s: WebGLSync | null) => {
+      if (s) {
+        await waitSync(gl, s);
+        gl.deleteSync(s);
+      }
+    };
+    while (this.compositeDirty) {
+      this.compositeDirty = false;
+      changed = true;
+      const it = this.compositor.steps(this.layers, this.size, this.settings);
+      this.compositing = it;
+      for (;;) {
+        // flushComposite may finish it meanwhile
+        if (this.compositing !== it || it.next().done) break;
+        const s = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+        gl.flush();
+        await settle(prev);
+        prev = s;
+      }
+      if (this.compositing === it) this.compositing = null;
+    }
+    await settle(prev);
+    return changed;
   }
 
   setSettings(s: Partial<PaintSettings>) {
@@ -331,6 +390,7 @@ export class PaintProject {
 
   /** the colour of the composited maps under a point of the view, for the colour picker (pick_color) */
   pickColors(uv: [number, number]): Record<string, number | { r: number; g: number; b: number; a: number }> {
+    this.flushComposite();
     const size = this.size;
     const px = Math.min(size - 1, Math.max(0, Math.floor(uv[0] * size))),
       py = Math.min(size - 1, Math.max(0, Math.floor(uv[1] * size)));
@@ -428,13 +488,32 @@ export class PaintProject {
   /* ---------- files ---------- */
   /** the project as Material Maker writes it (do_save_project), with its PNGs and model, as a zip */
   save(name = this.title): Uint8Array {
+    const { files, images } = this.saveFiles(name);
+    for (const [file, t] of images) files[file] = encodePng(this.gpu, t);
+    return zipSync(files, { level: 0 });
+  }
+  /** save() without stalling the page: the layers read asynchronously, the PNGs encoded and the zip packed off the
+   *  page's thread. The layers are copied first, so painting can go on meanwhile. */
+  async saveAsync(name = this.title, png: (t: Target) => Promise<Uint8Array>): Promise<Uint8Array> {
+    const { files, images } = this.saveFiles(name);
+    const copies = images.map(([file, t]) => [file, this.copyTexture(t)] as const);
+    try {
+      for (const [file, t] of copies) files[file] = await png(t);
+    } finally {
+      for (const [, t] of copies) this.renderer.deleteTarget(t);
+    }
+    return new Promise((res, rej) => zip(files, { level: 0 }, (e, out) => (e ? rej(e) : res(out))));
+  }
+  private saveFiles(name: string) {
     const files: Record<string, Uint8Array> = {};
+    const images: [string, Target][] = [];
     const dir = name;
     const data: Dict = {
       layers: this.layers.map((l) =>
         layerData(l, (c, layer) => {
           const file = `${c}_${layer.index}.png`;
-          files[`${dir}/${file}`] = encodePng(this.gpu, layer.textures[c]);
+          images.push([`${dir}/${file}`, layer.textures[c]]);
+          files[`${dir}/${file}`] = new Uint8Array(0); // keeps the order of the entries
           return file;
         }),
       ),
@@ -449,7 +528,7 @@ export class PaintProject {
     if (this.brushGraph) data.brush = this.brushGraph.serialize();
     files[`${name}.mmpp`] = new TextEncoder().encode(JSON.stringify(data));
     this.needSave = false;
-    return zipSync(files, { level: 0 });
+    return { files, images };
   }
 
   /** layers from a .mmpp file's data, with its images by file name (load_layers) */
@@ -488,6 +567,7 @@ export class PaintProject {
 
   /** the graph export.gd builds: the maps into a material node, to use Material Maker's export targets */
   exportGraph(): { graph: GenGraph; material: GenMaterial } {
+    this.flushComposite();
     const graph = loadProject({ name: "", type: "graph", nodes: [{ name: "material", type: "material", node_position: { x: 0, y: 0 }, parameters: { size: this.settings.texture_size } }], connections: [] });
     const material = graph.getNode("material") as GenMaterial;
     const order: MapChannel[] = ["albedo", "metallic", "roughness", "emission", "normal", "occlusion", "depth"];
@@ -523,60 +603,7 @@ export interface Float32ArrayImage {
 
 /** a target as an 8 bit PNG */
 export function encodePng(gpu: Gpu, t: Target): Uint8Array {
-  const px = gpu.read(t);
-  const rgba = new Uint8Array(px.length);
-  for (let i = 0; i < px.length; i++) rgba[i] = Math.round(Math.min(1, Math.max(0, px[i])) * 255);
-  return pngEncode(t.size, t.size, rgba);
-}
-
-/* ---------- a small PNG encoder (stored deflate), so saving does not need a canvas ---------- */
-const CRC_TABLE = (() => {
-  const t = new Uint32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    t[n] = c >>> 0;
-  }
-  return t;
-})();
-function crc32(data: Uint8Array, start = 0, end = data.length) {
-  let c = 0xffffffff;
-  for (let i = start; i < end; i++) c = CRC_TABLE[(c ^ data[i]) & 0xff] ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
-}
-export function pngEncode(w: number, h: number, rgba: Uint8Array): Uint8Array {
-  const raw = new Uint8Array((w * 4 + 1) * h);
-  for (let y = 0; y < h; y++) {
-    raw[y * (w * 4 + 1)] = 0;
-    raw.set(rgba.subarray(y * w * 4, (y + 1) * w * 4), y * (w * 4 + 1) + 1);
-  }
-  const idat = zlibSync(raw, { level: 3 });
-  const chunks: Uint8Array[] = [];
-  const chunk = (type: string, data: Uint8Array) => {
-    const c = new Uint8Array(12 + data.length);
-    const dv = new DataView(c.buffer);
-    dv.setUint32(0, data.length);
-    for (let i = 0; i < 4; i++) c[4 + i] = type.charCodeAt(i);
-    c.set(data, 8);
-    dv.setUint32(8 + data.length, crc32(c, 4, 8 + data.length));
-    chunks.push(c);
-  };
-  const ihdr = new Uint8Array(13);
-  const dv = new DataView(ihdr.buffer);
-  dv.setUint32(0, w);
-  dv.setUint32(4, h);
-  ihdr.set([8, 6, 0, 0, 0], 8);
-  chunks.push(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]));
-  chunk("IHDR", ihdr);
-  chunk("IDAT", idat);
-  chunk("IEND", new Uint8Array(0));
-  const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
-  let o = 0;
-  for (const c of chunks) {
-    out.set(c, o);
-    o += c.length;
-  }
-  return out;
+  return encodePixels(t.size, t.size, gpu.read(t));
 }
 
 /** the files of a saved project: a zip, or the .mmpp, its PNGs and its model picked together */

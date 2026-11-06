@@ -375,6 +375,31 @@ void main() {
     return out;
   }
 
+  /** reads RGBA floats (row 0 first) without stalling the thread: into a pixel buffer, then copied out once a fence
+   *  says the GPU is done, in bands with the event loop running in between */
+  async readAsync(t: RT | Target): Promise<Float32Array> {
+    const r = "size" in t ? Gpu.asRT(t) : t;
+    const gl = this.gl;
+    const bytes = r.w * r.h * 16;
+    const buf = gl.createBuffer()!;
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buf);
+    gl.bufferData(gl.PIXEL_PACK_BUFFER, bytes, gl.STREAM_READ);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, r.fbo);
+    gl.readPixels(0, 0, r.w, r.h, gl.RGBA, gl.FLOAT, 0);
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    await gpuPause(gl)();
+    const out = new Float32Array(r.w * r.h * 4);
+    const band = 1 << 20; // floats per copy (4 MB)
+    for (let o = 0; o < out.length; o += band) {
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buf);
+      gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, o * 4, out, o, Math.min(band, out.length - o));
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      if (o + band < out.length) await nextTask();
+    }
+    gl.deleteBuffer(buf);
+    return out;
+  }
+
   /** a texture from float data (row 0 first) */
   upload(w: number, h: number, data: Float32Array, f32 = true): RT {
     const t = this.target(w, h, { f32, nearest: true, clamp: true });
@@ -384,6 +409,32 @@ void main() {
     return t;
   }
 }
+
+/** waits until the GPU has done what was sent so far without blocking the thread (fence polling), so a long bake
+ *  leaves room for the page's frames and for other contexts */
+export function gpuPause(gl: WebGL2RenderingContext): () => Promise<void> {
+  return async () => {
+    const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+    gl.flush();
+    if (!sync) return;
+    await waitSync(gl, sync);
+    gl.deleteSync(sync);
+  };
+}
+
+/** polls a fence until the GPU has passed it, giving the thread back in between */
+export async function waitSync(gl: WebGL2RenderingContext, sync: WebGLSync): Promise<void> {
+  let wait = 0;
+  for (;;) {
+    const r = gl.clientWaitSync(sync, 0, 0);
+    if (r === gl.ALREADY_SIGNALED || r === gl.CONDITION_SATISFIED || r === gl.WAIT_FAILED) return;
+    await new Promise((res) => setTimeout(res, wait));
+    wait = Math.min(16, wait + 2);
+  }
+}
+
+/** yields to the event loop (between bands of a long copy) */
+export const nextTask = () => new Promise<void>((res) => setTimeout(res, 0));
 
 const gpus = new WeakMap<Renderer, Gpu>();
 export function gpuFor(r: Renderer): Gpu {

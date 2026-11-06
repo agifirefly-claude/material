@@ -130,6 +130,12 @@ export class Compositor {
 
   /** composites the layers into the maps (update_layers_renderer) */
   composite(layers: Layer[], size: number, normal: NormalOptions, parentAlpha?: Map<Layer, Record<MapChannel, number>>) {
+    const steps = this.steps(layers, size, normal, parentAlpha);
+    while (!steps.next().done);
+  }
+
+  /** the composite's draws, yielding after each layer's (compositeAsync awaits the GPU there) */
+  *steps(layers: Layer[], size: number, normal: NormalOptions, parentAlpha?: Map<Layer, Record<MapChannel, number>>): Generator<void, void> {
     this.ensure(size);
     const gpu = this.gpu;
     const prog = gpu.program(Gpu.FULLSCREEN_VS, GLSL_HEADER + BLEND_FS);
@@ -156,6 +162,7 @@ export class Compositor {
       blend("normal", l.textures.normal, 0, a.normal, masks);
       blend("depth", l.textures.do, 1, a.depth, masks);
       blend("occlusion", l.textures.do, 2, a.occlusion, masks);
+      yield;
     }
     // normal map, from the painted normals and the depth as bump (set_normal_options)
     const nm = gpu.program(Gpu.FULLSCREEN_VS, GLSL_HEADER + NORMAL_MAP_FS);

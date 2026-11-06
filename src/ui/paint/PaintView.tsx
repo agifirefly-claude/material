@@ -104,6 +104,7 @@ export function PaintView() {
     canvases: Record<string, HTMLCanvasElement>;
     textures: Record<string, THREE.CanvasTexture>;
     dirtyMaps: boolean;
+    compositing: boolean;
     stroke: StrokeState;
     stage: Stage;
   } | null>(null);
@@ -149,7 +150,7 @@ export function PaintView() {
     const ambient = new THREE.AmbientLight();
     scene.add(sun, ambient);
     const stage: Stage = { scene, pmrem, sun, ambient, envMaps: new Map() };
-    const st = { stage, renderer, scene, camera, controls, mesh, material, canvases, textures, dirtyMaps: true, stroke: new StrokeState() };
+    const st = { stage, renderer, scene, camera, controls, mesh, material, canvases, textures, dirtyMaps: true, compositing: false, stroke: new StrokeState() };
     state.current = st;
     const updateView = () => {
       const w = el.clientWidth,
@@ -177,8 +178,25 @@ export function PaintView() {
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const p = paint.project;
-      if (p && st.dirtyMaps) {
+      // the maps are composited without waiting for the GPU (compositeAsync), then drawn into the textures
+      if (p && st.dirtyMaps && !st.compositing) {
         st.dirtyMaps = false;
+        st.compositing = true;
+        p.compositeAsync().then(
+          () => {
+            st.compositing = false;
+            if (state.current === st && paint.project === p) showMaps(p);
+          },
+          (e) => {
+            st.compositing = false;
+            console.error("composite", e);
+          },
+        );
+      }
+      renderer.render(scene, camera);
+    };
+    const showMaps = (p: PaintProject) => {
+      {
         const gpu = p.gpu;
         for (const k of MAPS) {
           const t = p.compositor.maps[k];
@@ -203,7 +221,6 @@ export function PaintView() {
         material.normalMap = s.paint_normal || s.paint_depth_as_bump ? textures.normal_gl : null;
         material.needsUpdate = true;
       }
-      renderer.render(scene, camera);
     };
     loop();
     return () => {
