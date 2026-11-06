@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { editor } from "../store";
 import { GenGraph } from "../../engine/gen/graph";
 import type { Gen } from "../../engine/gen/base";
-import { selectAnywhere } from "../Inspector";
+import { selectAnywhere } from "../inspector/Info";
 import { t, useLang } from "../i18n";
 
 function allNodes(g: GenGraph, out: Gen[] = []): Gen[] {

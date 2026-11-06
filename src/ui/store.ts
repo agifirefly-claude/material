@@ -4,6 +4,7 @@ import { GenGraph } from "../engine/gen/graph";
 import type { Gen } from "../engine/gen/base";
 import { loadProject } from "../engine/loader";
 import { Renderer } from "../engine/render/renderer";
+import { UndoHistory } from "./undoHistory";
 
 type Listener = () => void;
 interface TabState {
@@ -11,9 +12,7 @@ interface TabState {
   path: string[];
   selection: string[];
   title: string;
-  undoStack: string[];
-  redoStack: string[];
-  lastSnapshot: string;
+  history: UndoHistory;
   /** what else the tab holds: a paint project for paint tabs, null for material projects */
   data: unknown;
 }
@@ -38,15 +37,14 @@ class Editor {
   renderer: Renderer | null = null;
   version = 0;
   private listeners = new Set<Listener>();
-  private undoStack: string[] = [];
-  private redoStack: string[] = [];
-  private lastSnapshot = "";
+  private history = new UndoHistory();
   private snapshotTimer: ReturnType<typeof setTimeout> | null = null;
   private unsubscribe: (() => void) | null = null;
   status = "";
 
   constructor() {
     this.attach();
+    this.history.current = this.serialized();
   }
 
   get graph(): GenGraph {
@@ -79,7 +77,9 @@ class Editor {
       this.emit();
       this.scheduleSnapshot();
     });
-    this.lastSnapshot = JSON.stringify(this.root.serialize());
+  }
+  private serialized() {
+    return JSON.stringify(this.root.serialize());
   }
 
   /* ----- project tabs (Material Maker's projects panel) ----- */
@@ -96,7 +96,7 @@ class Editor {
   }
   private capture(): TabState {
     if (this.snapshotTimer) this.snapshot();
-    return { root: this.root, path: this.path, selection: this.selection, title: this.title, undoStack: this.undoStack, redoStack: this.redoStack, lastSnapshot: this.lastSnapshot, data: this.data };
+    return { root: this.root, path: this.path, selection: this.selection, title: this.title, history: this.history, data: this.data };
   }
   private apply(t: TabState) {
     this.data = t.data;
@@ -104,11 +104,11 @@ class Editor {
     this.path = t.path;
     this.selection = t.selection;
     this.title = t.title;
-    this.undoStack = t.undoStack;
-    this.redoStack = t.redoStack;
+    this.history = t.history;
     this.renderer?.clearCache();
     this.attach();
-    this.lastSnapshot = t.lastSnapshot;
+    // a new tab's history starts from what it opened with
+    this.history.current ??= this.serialized();
   }
   /** the open projects, the current one included */
   get projects(): { title: string; current: boolean; data: unknown }[] {
@@ -123,7 +123,7 @@ class Editor {
   }
   /** a project left untouched since it was created can be replaced rather than kept */
   private get pristine() {
-    return this.data === null && this.undoStack.length === 0 && !this.snapshotTimer && this.title === "untitled" && this.root.children.length <= 1;
+    return this.data === null && !this.history.canUndo && !this.snapshotTimer && this.title === "untitled" && this.root.children.length <= 1;
   }
   /** opens a project in a new tab (or in the current one, when that one is an untouched new project) */
   openProject(g: GenGraph, title = "untitled", data: unknown = null) {
@@ -134,7 +134,7 @@ class Editor {
       return;
     }
     this.tabs[this.current] = this.capture();
-    this.tabs.push({ root: g, path: [], selection: [], title, undoStack: [], redoStack: [], lastSnapshot: "", data });
+    this.tabs.push({ root: g, path: [], selection: [], title, history: new UndoHistory(), data });
     this.current = this.tabs.length - 1;
     this.apply(this.tabs[this.current]);
     this.emit();
@@ -151,7 +151,7 @@ class Editor {
     if (!this.tabs.length) this.tabs = [this.capture()];
     this.tabs[this.current] = this.capture();
     const [closed] = this.tabs.splice(i, 1);
-    if (!this.tabs.length) this.tabs.push({ root: replacement(), path: [], selection: [], title: "untitled", undoStack: [], redoStack: [], lastSnapshot: "", data: null });
+    if (!this.tabs.length) this.tabs.push({ root: replacement(), path: [], selection: [], title: "untitled", history: new UndoHistory(), data: null });
     if (i < this.current) this.current--;
     this.current = Math.min(this.current, this.tabs.length - 1);
     this.apply(this.tabs[this.current]);
@@ -160,7 +160,7 @@ class Editor {
   }
   hasChanges(i: number): boolean {
     const t = i === this.current || !this.tabs.length ? this.capture() : this.tabs[i];
-    return !!t && t.undoStack.length > 0;
+    return !!t && t.history.canUndo;
   }
   /** whether tab i may close: its data's owner decides, otherwise the user is asked about unsaved changes */
   confirmClose(i: number, question: string): boolean {
@@ -180,10 +180,9 @@ class Editor {
     this.path = [];
     this.selection = [];
     this.title = title;
-    this.undoStack = [];
-    this.redoStack = [];
     this.renderer?.clearCache();
     this.attach();
+    this.history = new UndoHistory(this.serialized());
     this.emit();
   }
 
@@ -221,19 +220,13 @@ class Editor {
   }
   snapshot() {
     this.snapshotTimer = null;
-    const s = JSON.stringify(this.root.serialize());
-    if (s === this.lastSnapshot) return;
-    this.undoStack.push(this.lastSnapshot);
-    if (this.undoStack.length > 100) this.undoStack.shift();
-    this.redoStack = [];
-    this.lastSnapshot = s;
+    this.history.record(this.serialized());
   }
   private restore(s: string) {
     const path = this.path;
     const sel = this.selection;
     this.root = loadProject(JSON.parse(s));
     this.attach();
-    this.lastSnapshot = s;
     this.path = [];
     for (const n of path) {
       if (this.graph.getNode(n) instanceof GenGraph) this.path.push(n);
@@ -244,22 +237,18 @@ class Editor {
   }
   undo() {
     if (this.snapshotTimer) this.snapshot();
-    const s = this.undoStack.pop();
-    if (s === undefined) return;
-    this.redoStack.push(this.lastSnapshot);
-    this.restore(s);
+    const s = this.history.undo();
+    if (s !== undefined) this.restore(s);
   }
   redo() {
-    const s = this.redoStack.pop();
-    if (s === undefined) return;
-    this.undoStack.push(this.lastSnapshot);
-    this.restore(s);
+    const s = this.history.redo();
+    if (s !== undefined) this.restore(s);
   }
   get canUndo() {
-    return this.undoStack.length > 0 || this.snapshotTimer !== null;
+    return this.history.canUndo || this.snapshotTimer !== null;
   }
   get canRedo() {
-    return this.redoStack.length > 0;
+    return this.history.canRedo;
   }
 
   setStatus(s: string) {

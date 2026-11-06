@@ -1,7 +1,7 @@
 /* Exports the project's material as an m3e material file (src/formats/m3e-material.ts, docs/m3e-material.md). */
 import type { Renderer } from "../engine/render/renderer";
 import type { GenMaterial } from "../engine/gen/misc";
-import { previewMaps } from "../ui/materialMaps";
+import { previewMaps } from "../engine/materialMaps";
 import { MATERIAL_FORMAT, MATERIAL_VERSION, materialId, type MaterialDef, type MaterialFile, type MaterialLight } from "../formats/m3e-material";
 
 export interface M3eExportOptions {

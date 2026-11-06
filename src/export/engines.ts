@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import type { Renderer } from "../engine/render/renderer";
 import type { GenMaterial } from "../engine/gen/misc";
-import { previewMaps } from "../ui/materialMaps";
+import { previewMaps } from "../engine/materialMaps";
 import { isColor } from "../engine/params/types";
 
 export type MapName = "albedo" | "orm" | "normal" | "emission";

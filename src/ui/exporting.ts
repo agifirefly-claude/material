@@ -1,8 +1,7 @@
 /* Files: saving and opening projects (.ptex, Material Maker's format), exporting images and material maps. */
-import JSON5 from "json5";
 import { zipSync } from "fflate";
 import { editor } from "./store";
-import { STANDARD_MAPS, findMaterial, hasStandardMaps, renderMap } from "./materialMaps";
+import { STANDARD_MAPS, findMaterial, hasStandardMaps, renderMap } from "../engine/materialMaps";
 import { GenContext } from "../engine/context";
 import type { Dict } from "../engine/gen/base";
 import { GenGraph } from "../engine/gen/graph";
@@ -10,6 +9,7 @@ import { GenExport } from "../engine/gen/misc";
 import { expressionShaderCode, planExport, processShader, processConditionals, connectionsAndParametersContext } from "../engine/export";
 import type { TextureRef } from "../engine/shader-code";
 import { t } from "./i18n";
+import { parseProject, serializeProject } from "../engine/ptex";
 
 export function downloadBlob(blob: Blob, name: string) {
   const a = document.createElement("a");
@@ -68,43 +68,8 @@ export function imageDataToPng(img: ImageData): Promise<Blob> {
   return new Promise((res) => c.toBlob((b) => res(b!), "image/png"));
 }
 
-const PROCESS = ["code", "custom", "global", "instance", "preview_shader", "template"];
-const WALK = ["shader_model", "nodes", "template", "files"];
-/** MMLoader.replace_multiline_strings_with_arrays: how Material Maker writes code in its files */
-function splitLines(data: unknown, walkChildren = false): unknown {
-  if (Array.isArray(data)) return data.map((d) => splitLines(d));
-  if (data && typeof data === "object") {
-    const out: Dict = {};
-    for (const [k, v] of Object.entries(data as Dict)) {
-      if (PROCESS.includes(k) && typeof v === "string") out[k] = v.includes("\n") ? v.replaceAll("    ", "\t").split("\n") : v;
-      else if (walkChildren || WALK.includes(k)) out[k] = splitLines(v);
-      else if (k === "exports") out[k] = splitLines(v, true);
-      else out[k] = v;
-    }
-    return out;
-  }
-  return data;
-}
-const PROCESS_JOIN = (data: unknown, walkChildren = false): unknown => {
-  if (Array.isArray(data)) return data.map((d) => PROCESS_JOIN(d));
-  if (data && typeof data === "object") {
-    const out: Dict = {};
-    for (const [k, v] of Object.entries(data as Dict)) {
-      if (PROCESS.includes(k) && Array.isArray(v)) out[k] = v.join("\n");
-      else if (walkChildren || WALK.includes(k)) out[k] = PROCESS_JOIN(v);
-      else if (k === "exports") out[k] = PROCESS_JOIN(v, true);
-      else out[k] = v;
-    }
-    return out;
-  }
-  return data;
-};
-
 export function projectText(): string {
-  const data = editor.root.serialize();
-  data.name = editor.title;
-  data.node_position = { x: 0, y: 0 };
-  return JSON.stringify(splitLines(data), null, "\t");
+  return serializeProject(editor.root, editor.title);
 }
 
 export function saveProject() {
@@ -117,9 +82,7 @@ export function saveProject() {
   }
 }
 
-export function parseProject(text: string): Dict {
-  return PROCESS_JOIN(JSON5.parse(text)) as Dict;
-}
+export { parseProject };
 
 export function openProjectFile() {
   const input = document.createElement("input");

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { editor, useEditor } from "./store";
-import { findMaterial, previewMaps } from "./materialMaps";
+import { findMaterial, previewMaps } from "../engine/materialMaps";
 import { previews } from "./previews";
 import { isColor } from "../engine/params/types";
 import { buildGeometry, loadModel, objectByKey } from "./preview3d/objects";

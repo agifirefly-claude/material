@@ -1,10 +1,10 @@
 /* The texture maps of the project's material node, rendered for the 3D preview and for export. */
-import { GenContext } from "../engine/context";
-import { GenMaterial } from "../engine/gen/misc";
-import type { Renderer, Target } from "../engine/render/renderer";
-import type { GenGraph } from "../engine/gen/graph";
-import { expressionShaderCode } from "../engine/export";
-import type { ShaderCode } from "../engine/shader-code";
+import { GenContext } from "./context";
+import { GenMaterial } from "./gen/misc";
+import type { Renderer, Target } from "./render/renderer";
+import type { GenGraph } from "./gen/graph";
+import { expressionShaderCode } from "./export";
+import type { ShaderCode } from "./shader-code";
 
 export function findMaterial(root: GenGraph): GenMaterial | undefined {
   return root.children.find((c) => c instanceof GenMaterial) as GenMaterial | undefined;

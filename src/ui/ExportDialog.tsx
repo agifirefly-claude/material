@@ -4,7 +4,7 @@ import { useState } from "react";
 import { zipSync } from "fflate";
 import { editor } from "./store";
 import { t } from "./i18n";
-import { findMaterial } from "./materialMaps";
+import { findMaterial } from "../engine/materialMaps";
 import { exportProfiles } from "../engine/export";
 import { downloadBlob, exportForEngine, exportMaterialMaps, projectText } from "./exporting";
 import { cocosFiles, glbFile, type GltfShape } from "../export/engines";

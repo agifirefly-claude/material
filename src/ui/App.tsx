@@ -11,7 +11,7 @@ import { ExportDialogsHost, openExportDialog } from "./preview2d/Dialogs";
 import { Preview3D } from "./Preview3D";
 import { exportForEngine, exportMaterialMaps, openExample, openProjectFile, parseProject, projectText, saveProject } from "./exporting";
 import { exportProfiles } from "../engine/export";
-import { findMaterial, previewMaps } from "./materialMaps";
+import { findMaterial, previewMaps } from "../engine/materialMaps";
 import { ExportDialog } from "./ExportDialog";
 import { raymarchPreviewSupported } from "../engine/preview3d";
 import { PreviewRay } from "./PreviewRay";
