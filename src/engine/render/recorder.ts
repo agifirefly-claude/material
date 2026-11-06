@@ -57,6 +57,8 @@ export class Recorder extends HostBase {
   private lastKey = "";
   /** the worker targets it created and has not deleted */
   readonly owned = new Set<number>();
+  /** programs this recorder has put in its operations */
+  private programsSent = new Set<string>();
 
   constructor(readonly link: RecorderLink) {
     super();
@@ -115,7 +117,10 @@ export class Recorder extends HostBase {
     const hash = fnv(built.source);
     const failed = this.link.failed.get(hash);
     if (failed) throw failed;
-    if (!this.link.sent.has(hash)) {
+    // each recorder sends a program the first time it draws it, even when another recorder has: the other one's batch
+    // may run in the other lane, after this one (an export drawing what a preview batch still queued defines)
+    if (!this.programsSent.has(hash)) {
+      this.programsSent.add(hash);
       this.link.sent.add(hash);
       this.ops.push({ op: "program", hash, source: built.source, uniforms: built.uniforms.map((u) => ({ name: u.name, type: u.type, size: u.size })) });
     }
@@ -168,6 +173,7 @@ export class Recorder extends HostBase {
     this.loopTextures.clear();
     this.drawKeys.clear();
     this.owned.clear();
+    this.programsSent.clear();
     this.webcam.reset();
     for (const t of this.transfer) (t as ImageBitmap).close?.();
     this.ops = [];
