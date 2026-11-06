@@ -515,9 +515,13 @@ export class GenShader extends Gen {
   /** Port of replace_variables: substitutes $name, $(name), $input(uv), $input.suffix(...) from the end of the string. */
   replaceVariables(s: string, variables: Variables, rv: ShaderCode, context: GenContext): string {
     let end = "";
+    // text replacements are scanned again (a float expression can use other parameters): the
+    // variables being expanded, by where their text starts, so that `$a` → `($a)` cannot loop forever
+    const expanding: { start: number; name: string }[] = [];
     for (;;) {
       const dollar = s.lastIndexOf("$");
       if (dollar === -1) break;
+      while (expanding.length && expanding[expanding.length - 1].start > dollar) expanding.pop();
       let variableEnd: number;
       let variable: string;
       if (s[dollar + 1] === "(") {
@@ -533,7 +537,13 @@ export class GenShader extends Gen {
       s = s.slice(0, dollar);
       const replaceWith = variables[variable];
       if (replaceWith === undefined) s += `(error: ${variable} not found)`;
-      else if (typeof replaceWith === "string") s += replaceWith;
+      else if (typeof replaceWith === "string") {
+        if (expanding.some((e) => e.name === variable)) s += `(error: ${variable} refers to itself)`;
+        else {
+          if (replaceWith.includes("$")) expanding.push({ start: dollar, name: variable });
+          s += replaceWith;
+        }
+      }
       else {
         let replaceAll = dollar === 0;
         end = end.trim();

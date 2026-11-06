@@ -28,6 +28,7 @@ export function ParamControl({ gen, def, compact }: { gen: Gen; def: ParameterDe
           onChange={set}
           onCommit={() => editor.snapshot()}
           title={def.shortdesc}
+          resetTo={typeof def.default === "number" || typeof def.default === "string" ? def.default : undefined}
         />
       );
     case "size": {

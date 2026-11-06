@@ -1,9 +1,12 @@
 import { useRef, useState } from "react";
 import { t } from "../i18n";
+import { parseFloatInput } from "./floatInput";
 
 /** Material Maker's float field: drag sideways to change, double click to type a number or an expression. */
-export function FloatEdit({ value, min = 0, max = 1, step = 0.01, onChange, onCommit, allowExpr = true, title }: {
+export function FloatEdit({ value, min = 0, max = 1, step = 0.01, onChange, onCommit, allowExpr = true, title, resetTo }: {
   value: number | string;
+  /** the value a right click puts back (the parameter's default) */
+  resetTo?: number | string;
   min?: number;
   max?: number;
   step?: number;
@@ -42,7 +45,8 @@ export function FloatEdit({ value, min = 0, max = 1, step = 0.01, onChange, onCo
       </div>
     );
   }
-  function commitText(t: string) {
+  function commitText(typed: string) {
+    const t = parseFloatInput(typed);
     const n = Number(t);
     if (t.trim() !== "" && Number.isFinite(n)) onChange(n);
     else if (allowExpr && t.trim() !== "") onChange(t.trim());
@@ -51,7 +55,16 @@ export function FloatEdit({ value, min = 0, max = 1, step = 0.01, onChange, onCo
   return (
     <div
       className={"float-edit nodrag" + (isNum ? "" : " expr")}
-      title={title ?? (isNum ? `${min} … ${max}` : t("expression"))}
+      title={(title ?? (isNum ? `${min} … ${max}` : t("expression"))) + (resetTo !== undefined ? "\n" + t("Right click: reset to {0}", String(resetTo)) : "")}
+      onContextMenu={(e) => {
+        if (resetTo === undefined) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (value !== resetTo) {
+          onChange(resetTo);
+          onCommit?.();
+        }
+      }}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         e.currentTarget.setPointerCapture(e.pointerId);

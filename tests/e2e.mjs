@@ -149,6 +149,50 @@ await (async () => {
   await p.close();
 })();
 
+// Material Maker issues #840 (profiles that name .exr maps got PNG bytes) and #615 (the Unreal 5 script imports a mm.py the zip lacked)
+console.log("== Engine export zips: .exr maps, Unreal's mm.py");
+await (async () => {
+  const p = await b.newPage();
+  const errs = [];
+  p.on("pageerror", (e) => errs.push(e.message));
+  await p.goto(URL + "/?lang=en&example=bricks");
+  await p.waitForTimeout(5000);
+  const r = await p.evaluate(async () => {
+    const { exportForEngine } = await import("/src/ui/exporting.ts");
+    const { unzipSync } = await import("/node_modules/fflate/esm/browser.js");
+    const zips = [];
+    const click = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {
+      zips.push(fetch(this.href).then((x) => x.arrayBuffer()));
+    };
+    const out = {};
+    try {
+      for (const profile of ["Blender", "Unreal/Unreal Engine 5"]) {
+        zips.length = 0;
+        await exportForEngine(profile, 64);
+        const files = unzipSync(new Uint8Array(await zips[0]));
+        const magic = (f) => Array.from(files[f].slice(0, 4)).map((x) => x.toString(16).padStart(2, "0")).join("");
+        out[profile] = Object.fromEntries(Object.keys(files).map((f) => [f, f.endsWith(".py") || f.endsWith(".shader") ? new TextDecoder().decode(files[f]).slice(0, 400) : magic(f)]));
+      }
+    } finally {
+      HTMLAnchorElement.prototype.click = click;
+    }
+    return out;
+  });
+  const blender = r["Blender"];
+  console.log("blender:", JSON.stringify(blender));
+  const exr = Object.keys(blender).filter((f) => f.endsWith(".exr"));
+  if (!exr.length || !exr.every((f) => blender[f] === "762f3101")) fail("the Blender export's .exr maps are not OpenEXR files");
+  if (!Object.keys(blender).filter((f) => f.endsWith(".png")).every((f) => blender[f] === "89504e47")) fail("the Blender export's .png maps are not PNG files");
+  const ue = r["Unreal/Unreal Engine 5"];
+  console.log("unreal 5:", Object.keys(ue).join(", "));
+  const py = Object.keys(ue).find((f) => f.endsWith(".py") && f !== "mm.py");
+  if ("clipboard" in ue) fail("the Unreal 5 zip has a file named clipboard");
+  if (!ue["mm.py"] || !py || !ue[py].includes("os.path.dirname(os.path.abspath(__file__))")) fail("the Unreal 5 export does not ship mm.py next to its script");
+  if (errs.length) fail(errs.join("; "));
+  await p.close();
+})();
+
 await b.close();
 await server.close();
 console.log(failed ? "e2e: failed" : "e2e: all passed");

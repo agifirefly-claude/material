@@ -11,6 +11,9 @@ import type { TextureRef } from "../engine/shader-code";
 import { t } from "./i18n";
 import { parseProject, serializeProject } from "../engine/ptex";
 import { fileName, host, projectPath, setProjectPath } from "./platform";
+import type { Renderer, Target } from "../engine/render/renderer";
+import { encodeExr } from "./preview2d/exr";
+import { UNREAL_MM_PY, localizeUnrealScript, needsUnrealMm } from "../export/unrealMm";
 
 export function downloadBlob(blob: Blob, name: string) {
   // the desktop app: a save dialog and a real file instead of a download
@@ -69,6 +72,19 @@ export async function addExportNodeFiles(files: Record<string, Uint8Array>, proj
     }
   }
   return n;
+}
+
+/** the image format a file name asks for (export profiles write .png and .exr maps) */
+export function imageFormatOf(name: string): "png" | "jpg" | "webp" | "exr" {
+  const ext = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
+  return ext === "exr" ? "exr" : ext === "jpg" || ext === "jpeg" ? "jpg" : ext === "webp" ? "webp" : "png";
+}
+
+/** a render target encoded in the format its file name asks for: float pixels for .exr, 8 bits otherwise */
+export async function encodeTarget(r: Renderer, tgt: Target, name: string): Promise<Uint8Array> {
+  const f = imageFormatOf(name);
+  if (f === "exr") return encodeExr(r.readPixels(tgt), tgt.size, tgt.height ?? tgt.size);
+  return new Uint8Array(await (await imageDataToBlob(r.toImageData(tgt), f)).arrayBuffer());
 }
 
 export function imageDataToPng(img: ImageData): Promise<Blob> {
@@ -184,22 +200,26 @@ export async function exportForEngine(profile: string, size?: number) {
   let buffersCode: ReturnType<typeof processShader> | null = null;
   for (const f of plan) {
     try {
-      if (f.kind === "text") files[f.name] = new TextEncoder().encode(f.text);
+      // a profile's "clipboard" file is text to paste in the engine (gen_material.gd export_material), not a file
+      if (f.kind === "text" && f.name === "clipboard") navigator.clipboard?.writeText(f.text.split("\n").filter(Boolean).join("\n")).catch(() => {});
+      else if (f.kind === "text") files[f.name] = new TextEncoder().encode(localizeUnrealScript(f.text));
       else if (f.kind === "texture") {
         const sc = f.output !== null ? m.getShaderCode("uv", f.output, new GenContext()) : expressionShaderCode(m, f.expression!);
         const t = r.render(sc, s);
-        files[f.name] = new Uint8Array(await (await imageDataToPng(r.toImageData(t))).arrayBuffer());
+        files[f.name] = await encodeTarget(r, t, f.name);
         r.deleteTarget(t);
       } else if (f.kind === "buffer") {
         buffersCode ??= processShader(m, processConditionals(String(m.shaderModel.preview_shader ?? ""), connectionsAndParametersContext(m)));
         const u = buffersCode.shaderCode.uniforms.find((x) => x.name === f.uniform);
         const t = u && r.textureFor(u.value as TextureRef);
-        if (t) files[f.name] = new Uint8Array(await (await imageDataToPng(r.toImageData(t))).arrayBuffer());
+        if (t) files[f.name] = await encodeTarget(r, t, f.name);
       }
     } catch (e) {
       console.error("export", f.name, e);
     }
   }
+  // the Unreal 5 script imports the helper module mm.py from its own folder
+  if (needsUnrealMm(plan) && !("mm.py" in files)) files["mm.py"] = new TextEncoder().encode(UNREAL_MM_PY);
   await addExportNodeFiles(files, prefix);
   downloadBlob(new Blob([zipSync(files, { level: 0 })], { type: "application/zip" }), `${prefix}_${profile.replaceAll("/", "_").replaceAll(" ", "_")}.zip`);
   editor.setStatus(t("Exported {0} files for {1}", Object.keys(files).length, profile));
