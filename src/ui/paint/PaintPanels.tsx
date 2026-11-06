@@ -1,13 +1,14 @@
 /* The paint mode's panels: tools and brush settings (paint.tscn's Tools and OptionsPanel), the brush's own parameters
  * (its graph's remote), the brush library (panels/brushes), the layers (panels/layers with layer_config_popup) and the
  * project settings (paint_project_settings). */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { paint, pickFiles, decodeImage, usePaint, TOOL_LABELS } from "./paintStore";
 import { ParamControl, paramLabel } from "../widgets/ParamControl";
 import { FloatEdit } from "../widgets/FloatEdit";
 import { CHANNELS, LAYER_MASK, LAYER_PAINT, LAYER_PROC, findParentArray, type Layer, type MapChannel } from "../../engine/paint/layers";
 import { editor } from "../store";
 import { t } from "../i18n";
+import { brushThumbnail } from "./brushPreview";
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -152,6 +153,7 @@ export function BrushesPanel() {
           {t("+ Save brush")}
         </button>
       </h3>
+      <CurrentBrush />
       <div className="lib-search">
         <input type="search" placeholder={t("Search brushes")} value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
@@ -166,6 +168,41 @@ export function BrushesPanel() {
     </>
   );
 }
+
+/** the current brush, drawn live: one dab on a plane, redone when its graph changes */
+function CurrentBrush() {
+  usePaint();
+  const p = paint.project;
+  const [img, setImg] = useState("");
+  const graph = p?.brushGraph;
+  const version = p?.version ?? 0;
+  useEffect(() => {
+    if (!graph || !editor.renderer) return;
+    const data = graph.serialize();
+    const key = JSON.stringify(data);
+    const hit = thumbCache.get(key);
+    if (hit) return setImg(hit);
+    const timer = setTimeout(() => {
+      brushThumbnail(editor.renderer!, data, 96).then((png) => {
+        thumbCache.set(key, png);
+        if (thumbCache.size > 64) thumbCache.delete(thumbCache.keys().next().value!);
+        setImg(png);
+      }, (e) => console.warn("brush preview", e));
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [graph, version]);
+  if (!p) return null;
+  return (
+    <div className="current-brush" title={t("The current brush")}>
+      {img ? <img src={"data:image/png;base64," + img} alt="" /> : <span className="brush-noicon" />}
+      <div>
+        <div style={{ color: "#fff" }}>{t("Current brush")}</div>
+        <div style={{ color: "var(--text3)" }}>{t(graph?.label && graph.label !== "Graph" ? graph.label : "Brush")}</div>
+      </div>
+    </div>
+  );
+}
+const thumbCache = new Map<string, string>();
 
 const TYPE_ICON = ["🖌", "⚙", "◐"];
 const TYPE_NAME = ["Paint layer", "Procedural layer", "Mask"];

@@ -7,17 +7,23 @@ import { installMeshMaps } from "../../engine/paint/meshmaps";
 import type { PaintMesh } from "../../engine/paint/mesh";
 import type { Dict } from "../../engine/gen/base";
 import type { LibraryItem } from "../../engine/registry";
-import { projectText, parseProject, downloadBlob } from "../exporting";
+import { downloadBlob } from "../exporting";
+import { newProject } from "../../engine/loader";
+import { setCurrentMesh } from "../../engine/paint/mesh";
 import { geometryToPaintMesh, loadModelGeometry, normalizeGeometry } from "./meshes";
 import { t } from "../i18n";
+import { brushThumbnail } from "./brushPreview";
 
 export const TOOLS = ["FreeDots", "FreeLine", "Line", "Stamp", "ColorPicker", "MaskSelector"] as const;
 export const TOOL_LABELS = ["Free dots", "Free line", "Line", "Stamp", "Colour picker", "ID mask"];
 
 class PaintState {
-  project: PaintProject | null = null;
-  /** the material project, kept while painting */
-  private savedMaterial: { title: string; text: string } | null = null;
+  /** the paint project of the current tab: paint projects are project tabs, next to material projects */
+  get project(): PaintProject | null {
+    return editor.data instanceof PaintProject ? editor.data : null;
+  }
+  /** the project whose brush the node editor shows and watches */
+  private shown: PaintProject | null = null;
   tool = 0;
   eraser = false;
   /** paint in texture space through the view (the "Engine" toggle) */
@@ -28,6 +34,9 @@ class PaintState {
   /** where keyboard shortcuts go: the paint views or the node editor */
   focus: "paint" | "graph" = "paint";
   status = "";
+  /** the 3D preview environment lighting the paint view, and whether its sky is shown */
+  environment = Number(localStorage.getItem("material-pro:paint-env") ?? 0) || 0;
+  showSky = localStorage.getItem("material-pro:paint-sky") === "1";
   version = 0;
   private listeners = new Set<() => void>();
   private unwatchBrush: (() => void) | null = null;
@@ -55,27 +64,51 @@ class PaintState {
     this.emit();
   }
 
-  /** opens a paint project (create_paint_project / do_load_painting) */
+  constructor() {
+    // switching tabs switches the paint workspace on or off and the brush graph shown
+    editor.subscribe(() => this.sync());
+    editor.addTabHooks({
+      canClose: (d) => (d instanceof PaintProject ? !d.needSave || confirm(t("The paint project has unsaved changes. Close it anyway?")) : undefined),
+      closed: (d) => {
+        if (d instanceof PaintProject) d.dispose();
+      },
+    });
+  }
+  private sync() {
+    const p = this.project;
+    if (p === this.shown) return;
+    this.unwatchBrush?.();
+    this.unwatchBrush = null;
+    this.shown = p;
+    if (p) {
+      // Mesh Map nodes in brushes bake from the painted model
+      setCurrentMesh(p.mesh);
+      this.watchBrush(p);
+    }
+    this.emit();
+  }
+
+  /** opens a paint project in a new tab (create_paint_project / do_load_painting) */
   private async open(project: PaintProject) {
     installMeshMaps();
     await this.loadBrushes();
-    if (!this.project) this.savedMaterial = { title: editor.title, text: projectText() };
-    else this.project.dispose();
-    this.project = project;
     if (!project.brushGraph) project.setBrush(this.brushes.find((b) => b.tree_item === "Simple/Uniform") ?? this.brushes[0], false);
     project.onChange(() => {
-      if (project.brushGraph && project.brushGraph !== editor.root) this.showBrush();
-      this.emit();
+      // a new brush graph (another brush picked): the node editor shows it
+      if (this.project === project && project.brushGraph && project.brushGraph !== editor.root) this.showBrush();
+      if (this.project === project) this.emit();
     });
-    this.showBrush();
-    this.emit();
+    editor.openProject(project.brushGraph!, project.title, project);
   }
 
   /** the node editor shows the brush graph; its changes update the brush */
   private showBrush() {
     const p = this.project!;
+    editor.setRoot(p.brushGraph!, p.title);
     this.unwatchBrush?.();
-    editor.setRoot(p.brushGraph!, "Brush");
+    this.watchBrush(p);
+  }
+  private watchBrush(p: PaintProject) {
     this.unwatchBrush = p.brushGraph!.onChange(() => {
       if (this.brushTimer) clearTimeout(this.brushTimer);
       this.brushTimer = setTimeout(() => {
@@ -98,17 +131,12 @@ class PaintState {
     this.emit();
   }
 
-  /** back to editing materials */
+  /** closes the paint project's tab */
   close() {
     if (!this.project) return;
-    if (this.project.needSave && !confirm(t("The paint project has unsaved changes. Close it anyway?"))) return;
-    this.unwatchBrush?.();
-    this.project.dispose();
-    this.project = null;
-    const s = this.savedMaterial;
-    this.savedMaterial = null;
-    if (s) editor.load(parseProject(s.text), s.title);
-    this.emit();
+    const i = editor.currentIndex;
+    if (!editor.confirmClose(i, "")) return;
+    editor.closeProject(i, () => newProject());
   }
 
   save() {
@@ -148,15 +176,33 @@ class PaintState {
   }
 
   /** the current brush, as a user brush in the brush list (Tools > Add current brush to library) */
-  addBrushToLibrary(name: string) {
+  async addBrushToLibrary(name: string) {
     const g = this.project?.brushGraph;
     if (!g) return;
     const item = { ...g.serialize(), tree_item: "User/" + name, display_name: name } as LibraryItem;
+    // its icon is a dab of it, rendered (main_window.gd add_brush_to_library: get_brush_preview)
+    try {
+      item.icon_data = await brushThumbnail(editor.renderer!, item);
+    } catch (e) {
+      console.warn("brush preview", e);
+    }
     this.brushes.push(item);
     try {
       const user = JSON.parse(localStorage.getItem("material-pro:brushes") ?? "[]");
       user.push(item);
       localStorage.setItem("material-pro:brushes", JSON.stringify(user));
+    } catch {
+      /* storage blocked */
+    }
+    this.emit();
+  }
+
+  setEnvironment(i: number, sky = this.showSky) {
+    this.environment = i;
+    this.showSky = sky;
+    try {
+      localStorage.setItem("material-pro:paint-env", String(i));
+      localStorage.setItem("material-pro:paint-sky", sky ? "1" : "0");
     } catch {
       /* storage blocked */
     }

@@ -631,7 +631,7 @@ ${
 
   private previewRT: RT | null = null;
   /** the brush footprint over the view at a position, as an image the size of the view (row 0 at the top) */
-  brushPreview(pos: [number, number], ppos: [number, number], patternShown = false): RT | null {
+  brushPreview(pos: [number, number], ppos: [number, number], patternShown = false, textureSpace = false): RT | null {
     if (!this.brushNode || !this.mesh) return null;
     const [w, h] = this.viewportSize;
     if (!this.previewRT || this.previewRT.w !== w || this.previewRT.h !== h) {
@@ -647,7 +647,8 @@ ${
       w,
       h,
       {
-        texture_space: false,
+        // in texture space the positions are texture coordinates times min(w, h), read through view2tex
+        texture_space: textureSpace,
         rect_size: [w, h],
         brush_pos: pos,
         brush_ppos: ppos,

@@ -535,7 +535,6 @@ export function GraphView() {
   const crumbs = ["Material", ...editor.path];
   return (
     <div className={"graph-wrap" + (editor.background !== "none" ? " with-bg" : "")}>
-      <ProjectTabs />
       <GraphBackground />
       <div className="crumbs">
         {crumbs.map((c, i) => (
@@ -560,16 +559,20 @@ export function GraphView() {
   );
 }
 
-/** the open projects, as Material Maker's project tabs */
-function ProjectTabs() {
+/** the open projects, as Material Maker's project tabs: material projects and paint projects */
+export function ProjectTabs() {
   useEditor();
   const tabs = editor.projects;
-  if (tabs.length < 2) return null;
+  // the app's grid has a row for the tabs: keep it, empty, with a single project
+  if (tabs.length < 2) return <div />;
   return (
     <div className="project-tabs">
       {tabs.map((p, i) => (
         <div key={i} className={"project-tab" + (p.current ? " on" : "")} onClick={() => editor.switchProject(i)} onAuxClick={(e) => e.button === 1 && closeTab(i)} title={p.title}>
-          <span>{p.title}</span>
+          <span>
+            {p.data ? "🖌 " : ""}
+            {p.title}
+          </span>
           <button
             title={t("Close")}
             onClick={(e) => {
@@ -585,7 +588,7 @@ function ProjectTabs() {
   );
 }
 function closeTab(i: number) {
-  if (editor.hasChanges(i) && !confirm(t("Discard the changes to the current project?"))) return;
+  if (!editor.confirmClose(i, t("Discard the changes to the current project?"))) return;
   editor.closeProject(i, () => newProject());
 }
 

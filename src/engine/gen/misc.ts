@@ -146,8 +146,37 @@ export class GenExport extends Gen {
   override getInputDefs(): PortDef[] {
     return [{ name: "in", type: "rgba" }];
   }
+  get imageSize(): number {
+    return Math.pow(2, Number(this.getParameter("size") ?? 10));
+  }
+  get format(): "png" | "jpg" | "webp" {
+    return (["png", "jpg", "webp"] as const)[Math.round(Number(this.getParameter("format") ?? 0))] ?? "png";
+  }
+  /** gen_export.gd interpret_file_name with MMLoader.interpret_file_name: $node, $project, $idx, $resolution, and the extension */
+  fileName(project: string, taken: (name: string) => boolean = () => false): string {
+    let name = String(this.getParameter("suffix") ?? "") || project;
+    const src = this.getSource(0)?.generator;
+    const node = src ? snakeCase(src.getTypeName()) : "unnamed";
+    name = name.replaceAll("$node", node).replaceAll("$project", project || "unnamed_project").replaceAll("$resolution", String(this.imageSize));
+    if (!name.endsWith("." + this.format)) name += "." + this.format;
+    if (name.includes("$idx")) {
+      let idx = 1;
+      while (taken(name.replaceAll("$idx", String(idx).padStart(2, "0")))) idx++;
+      name = name.replaceAll("$idx", String(idx).padStart(2, "0"));
+    }
+    return name;
+  }
 }
 
+/** Godot's String.to_snake_case */
+export function snakeCase(s: string): string {
+  return s
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[\s-]+/g, "_")
+    .toLowerCase();
+}
+
+/** Auto export (gen_autoexport.gd): its input is written to a file whenever it changes; the editor does the writing */
 export class GenAutoExport extends Gen {
   override getType() {
     return "autoexport";
@@ -158,11 +187,17 @@ export class GenAutoExport extends Gen {
   override getParameterDefs(): ParameterDef[] {
     return [
       { name: "size", label: "Size", type: "size", first: 4, last: 13, default: 4 },
-      { name: "filename", label: "Filename", type: "string", default: "test.png" },
+      { name: "filename", label: "Filename", type: "string", default: "test.png", longdesc: "Name of the exported file" },
     ];
+  }
+  override getDescription() {
+    return "Auto Export\nDefines a texture that will be saved together automatically when the node's input changes.";
   }
   override getInputDefs(): PortDef[] {
     return [{ name: "in", type: "rgba" }];
+  }
+  get imageSize(): number {
+    return Math.pow(2, Number(this.getParameter("size") ?? 4));
   }
 }
 

@@ -2,6 +2,19 @@
  * catalogs in public/data/locale). */
 export const EXTRA: Record<string, Record<string, string>> = {
   zh: {
+    "Reset panel layout": "重置面板布局",
+    "Auto export: wrote {0}": "自动导出：已写入 {0}",
+    "Choose the file this node keeps up to date": "选择此节点持续更新的文件",
+    "Writing to {0}": "写入到 {0}",
+    "Choose file…": "选择文件…",
+    "This browser cannot keep a file up to date: download the current image": "此浏览器无法持续更新文件：下载当前图像",
+    "Download": "下载",
+    "Drag to dock this panel elsewhere": "拖动以将此面板停靠到别处",
+    "The current brush": "当前笔刷",
+    "Current brush": "当前笔刷",
+    "Show the environment's sky behind the model": "在模型后面显示环境的天空",
+    "sky": "天空",
+    "Inspector": "检查器",
     "Show 2D preview behind the graph": "在节点图背后显示 2D 预览",
     "Show 3D preview behind the graph": "在节点图背后显示 3D 预览",
     "(custom)": "（自定义）",

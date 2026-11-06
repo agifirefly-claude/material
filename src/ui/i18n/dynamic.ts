@@ -1,6 +1,8 @@
 /* Strings that reach t() through a variable (menu entries, modes, labels kept in data), listed here so
  * scripts/check-i18n.mjs can check they are translated. Keep in step with the data they come from. */
 export const DYNAMIC_KEYS: string[] = [
+  // docked panel titles (dock/Dock.tsx PANEL_TITLES)
+  "Library", "Hierarchy", "3D material", "2D node output", "Reference", "Inspector",
   // 3D preview: rotation speeds, tonemap modes, objects and their settings (preview3d/Menus.tsx, postprocess.ts, objects.ts)
   "Pause", "Slow", "Medium", "Fast",
   "Linear", "Reinhard", "Filmic", "ACES", "AgX",

@@ -5,6 +5,8 @@ import { editor } from "./store";
 import { STANDARD_MAPS, findMaterial, hasStandardMaps, renderMap } from "./materialMaps";
 import { GenContext } from "../engine/context";
 import type { Dict } from "../engine/gen/base";
+import { GenGraph } from "../engine/gen/graph";
+import { GenExport } from "../engine/gen/misc";
 import { expressionShaderCode, planExport, processShader, processConditionals, connectionsAndParametersContext } from "../engine/export";
 import type { TextureRef } from "../engine/shader-code";
 import { t } from "./i18n";
@@ -15,6 +17,47 @@ export function downloadBlob(blob: Blob, name: string) {
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+/** an image as png, jpg or webp */
+export function imageDataToBlob(img: ImageData, format: "png" | "jpg" | "webp" = "png"): Promise<Blob> {
+  const c = document.createElement("canvas");
+  c.width = img.width;
+  c.height = img.height;
+  c.getContext("2d")!.putImageData(img, 0, 0);
+  const type = format === "jpg" ? "image/jpeg" : "image/" + format;
+  return new Promise((res) => c.toBlob((b) => res(b!), type, 0.92));
+}
+
+/** every Export node of a project, subgraphs included */
+export function exportNodes(g: GenGraph = editor.root, out: GenExport[] = []): GenExport[] {
+  for (const c of g.children) {
+    if (c instanceof GenExport) out.push(c);
+    else if (c instanceof GenGraph) exportNodes(c, out);
+  }
+  return out;
+}
+
+/** the files of the project's Export nodes, written with the material (gen_export.gd export_material) */
+export async function addExportNodeFiles(files: Record<string, Uint8Array>, project: string): Promise<number> {
+  const r = editor.renderer!;
+  let n = 0;
+  for (const e of exportNodes()) {
+    const src = e.getSource(0);
+    if (!src) continue;
+    try {
+      const sc = src.generator.getShaderCode("uv", src.outputIndex, new GenContext());
+      if (!sc.outputType) continue;
+      const tgt = r.render(sc, e.imageSize);
+      const name = e.fileName(project, (x) => x in files);
+      files[name] = new Uint8Array(await (await imageDataToBlob(r.toImageData(tgt), e.format)).arrayBuffer());
+      r.deleteTarget(tgt);
+      n++;
+    } catch (err) {
+      console.error("export node", e.name, err);
+    }
+  }
+  return n;
 }
 
 export function imageDataToPng(img: ImageData): Promise<Blob> {
@@ -120,6 +163,7 @@ export async function exportMaterialMaps(size?: number) {
     files[`${editor.title}_${map.key}.png`] = new Uint8Array(await png.arrayBuffer());
   }
   files[`${editor.title}.ptex`] = new TextEncoder().encode(projectText());
+  await addExportNodeFiles(files, editor.title);
   downloadBlob(new Blob([zipSync(files, { level: 0 })], { type: "application/zip" }), `${editor.title}_maps.zip`);
   editor.setStatus(t("Exported {0} maps", Object.keys(files).length - 1));
 }
@@ -154,6 +198,7 @@ export async function exportForEngine(profile: string, size?: number) {
       console.error("export", f.name, e);
     }
   }
+  await addExportNodeFiles(files, prefix);
   downloadBlob(new Blob([zipSync(files, { level: 0 })], { type: "application/zip" }), `${prefix}_${profile.replaceAll("/", "_").replaceAll(" ", "_")}.zip`);
   editor.setStatus(t("Exported {0} files for {1}", Object.keys(files).length, profile));
 }

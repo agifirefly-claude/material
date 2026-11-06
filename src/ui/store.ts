@@ -14,6 +14,15 @@ interface TabState {
   undoStack: string[];
   redoStack: string[];
   lastSnapshot: string;
+  /** what else the tab holds: a paint project for paint tabs, null for material projects */
+  data: unknown;
+}
+
+/** what other parts of the editor do with the tabs that hold their data (the paint mode) */
+export interface TabHooks {
+  /** whether the tab may close, asking the user when needed; undefined when the data is not theirs */
+  canClose?(data: unknown): boolean | undefined;
+  closed?(data: unknown): void;
 }
 
 class Editor {
@@ -76,11 +85,21 @@ class Editor {
   /* ----- project tabs (Material Maker's projects panel) ----- */
   private tabs: TabState[] = [];
   private current = 0;
+  /** the current tab's data (a paint project in a paint tab) */
+  data: unknown = null;
+  private hooks: TabHooks[] = [];
+  addTabHooks(h: TabHooks) {
+    this.hooks.push(h);
+  }
+  get currentIndex() {
+    return this.tabs.length ? this.current : 0;
+  }
   private capture(): TabState {
     if (this.snapshotTimer) this.snapshot();
-    return { root: this.root, path: this.path, selection: this.selection, title: this.title, undoStack: this.undoStack, redoStack: this.redoStack, lastSnapshot: this.lastSnapshot };
+    return { root: this.root, path: this.path, selection: this.selection, title: this.title, undoStack: this.undoStack, redoStack: this.redoStack, lastSnapshot: this.lastSnapshot, data: this.data };
   }
   private apply(t: TabState) {
+    this.data = t.data;
     this.root = t.root;
     this.path = t.path;
     this.selection = t.selection;
@@ -92,23 +111,30 @@ class Editor {
     this.lastSnapshot = t.lastSnapshot;
   }
   /** the open projects, the current one included */
-  get projects(): { title: string; current: boolean }[] {
-    if (!this.tabs.length) return [{ title: this.title, current: true }];
-    return this.tabs.map((t, i) => ({ title: i === this.current ? this.title : t.title, current: i === this.current }));
+  get projects(): { title: string; current: boolean; data: unknown }[] {
+    if (!this.tabs.length) return [{ title: this.title, current: true, data: this.data }];
+    return this.tabs.map((t, i) => ({ title: i === this.current ? this.title : t.title, current: i === this.current, data: i === this.current ? this.data : t.data }));
+  }
+  /** renames a tab (a paint project's title lives with its project) */
+  setTabTitle(i: number, title: string) {
+    if (!this.tabs.length || i === this.current) this.title = title;
+    else this.tabs[i].title = title;
+    this.emit();
   }
   /** a project left untouched since it was created can be replaced rather than kept */
   private get pristine() {
-    return this.undoStack.length === 0 && !this.snapshotTimer && this.title === "untitled" && this.root.children.length <= 1;
+    return this.data === null && this.undoStack.length === 0 && !this.snapshotTimer && this.title === "untitled" && this.root.children.length <= 1;
   }
   /** opens a project in a new tab (or in the current one, when that one is an untouched new project) */
-  openProject(g: GenGraph, title = "untitled") {
+  openProject(g: GenGraph, title = "untitled", data: unknown = null) {
     if (!this.tabs.length) this.tabs = [this.capture()];
     if (this.pristine) {
+      this.data = data;
       this.setRoot(g, title);
       return;
     }
     this.tabs[this.current] = this.capture();
-    this.tabs.push({ root: g, path: [], selection: [], title, undoStack: [], redoStack: [], lastSnapshot: "" });
+    this.tabs.push({ root: g, path: [], selection: [], title, undoStack: [], redoStack: [], lastSnapshot: "", data });
     this.current = this.tabs.length - 1;
     this.apply(this.tabs[this.current]);
     this.emit();
@@ -124,16 +150,29 @@ class Editor {
   closeProject(i: number, replacement: () => GenGraph) {
     if (!this.tabs.length) this.tabs = [this.capture()];
     this.tabs[this.current] = this.capture();
-    this.tabs.splice(i, 1);
-    if (!this.tabs.length) this.tabs.push({ root: replacement(), path: [], selection: [], title: "untitled", undoStack: [], redoStack: [], lastSnapshot: "" });
+    const [closed] = this.tabs.splice(i, 1);
+    if (!this.tabs.length) this.tabs.push({ root: replacement(), path: [], selection: [], title: "untitled", undoStack: [], redoStack: [], lastSnapshot: "", data: null });
     if (i < this.current) this.current--;
     this.current = Math.min(this.current, this.tabs.length - 1);
     this.apply(this.tabs[this.current]);
+    if (closed?.data) for (const h of this.hooks) h.closed?.(closed.data);
     this.emit();
   }
   hasChanges(i: number): boolean {
-    const t = i === this.current ? this.capture() : this.tabs[i];
+    const t = i === this.current || !this.tabs.length ? this.capture() : this.tabs[i];
     return !!t && t.undoStack.length > 0;
+  }
+  /** whether tab i may close: its data's owner decides, otherwise the user is asked about unsaved changes */
+  confirmClose(i: number, question: string): boolean {
+    const data = this.projects[i]?.data;
+    if (data) {
+      for (const h of this.hooks) {
+        const r = h.canClose?.(data);
+        if (r !== undefined) return r;
+      }
+      return true;
+    }
+    return !this.hasChanges(i) || confirm(question);
   }
 
   setRoot(g: GenGraph, title = "untitled") {

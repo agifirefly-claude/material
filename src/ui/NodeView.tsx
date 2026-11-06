@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useState } from "react";
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from "@xyflow/react";
 import type { Gen, PortDef } from "../engine/gen/base";
 import { GenComment, GenGraph, GenIOs, GenRemote, GenReroute } from "../engine/gen/graph";
-import { GenMaterial } from "../engine/gen/misc";
+import { GenAutoExport, GenMaterial } from "../engine/gen/misc";
 import { GenBuffer, GenIterateBuffer } from "../engine/gen/texture";
 import { registry } from "../engine/registry";
 import type { ShaderError } from "../engine/render/renderer";
@@ -11,6 +11,7 @@ import { PreviewCanvas } from "./PreviewCanvas";
 import { editor, useEditor } from "./store";
 import { t, tDesc, useLang } from "./i18n";
 import { TonesEditor, isTones } from "./Tones";
+import { AutoExportControls } from "./autoExport";
 
 export type NodeData = { gen: Gen };
 
@@ -109,6 +110,7 @@ function MMNodeInner({ id, data, selected }: NodeProps & { data: NodeData }) {
       </div>
       {rows === 0 && <div style={{ height: 4 }} />}
       {!g.minimized && isTones(g) && <TonesEditor gen={g} />}
+      {g instanceof GenAutoExport && <AutoExportControls gen={g} />}
       {!g.minimized && params.length > 0 && !isTones(g) && (
         <div className="params">
           {params.map((p) => (

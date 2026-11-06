@@ -32,6 +32,19 @@ export interface Layout {
   showLibrary: boolean;
   showRight: boolean;
   previewHeight: number;
+  /** the docked panels' arrangement (flexible_layout), made from the fields above when missing */
+  dock?: DockLayout;
+}
+
+/** A dock tree: splits of tab groups, with the graph (the centre) somewhere in it */
+export type DockPanel = "library" | "hierarchy" | "preview3d" | "preview2d" | "reference" | "inspector";
+export type DockNode = { type: "split"; dir: "row" | "column"; children: DockNode[]; sizes: number[] } | { type: "tabs"; panels: DockPanel[]; active: number } | { type: "center" };
+export interface DockLayout {
+  root: DockNode;
+  /** panels closed from their tab */
+  hidden: DockPanel[];
+  /** the legacy fields it was made from, so changing them in the layout dialog rebuilds it */
+  from: string;
 }
 
 export const DEFAULT_LAYOUT: Layout = { left: 250, right: 380, showLibrary: true, showRight: true, previewHeight: 42 };

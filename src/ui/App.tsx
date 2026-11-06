@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { editor, useEditor } from "./store";
-import { GraphView, groupSelection } from "./GraphView";
-import { Library } from "./Library";
+import { GraphView, ProjectTabs, groupSelection } from "./GraphView";
+import { Hierarchy, Library } from "./Library";
+import { Dock, PANEL_TITLES } from "./dock/Dock";
+import { ALL_PANELS, dockOf, showPanel, visiblePanels } from "./dock/model";
 import { Inspector } from "./Inspector";
 import { Preview2D } from "./Preview2D";
 import { ReferencePanel } from "./Reference";
@@ -87,11 +89,11 @@ export function App() {
   useLang();
   const prefs = usePrefs();
   const layout = prefs.layout;
+  const dock = dockOf(layout);
   const [examples, setExamples] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [newPaint, setNewPaint] = useState(false);
   usePaint();
-  const [view, setView] = useState<"2d" | "3d" | "ref">("3d");
   const [toast, setToast] = useState("");
   useEffect(() => {
     if (!editor.status) return;
@@ -103,7 +105,8 @@ export function App() {
 
   // autosave
   useEffect(() => {
-    if (!prefs.autosave) return;
+    // paint tabs hold the brush graph: the autosave keeps the last material project
+    if (!prefs.autosave || editor.data) return;
     const t = setTimeout(() => {
       try {
         localStorage.setItem("material-pro:autosave", JSON.stringify({ title: editor.title, text: projectText() }));
@@ -196,6 +199,18 @@ export function App() {
                 {t("Show 3D preview behind the graph")}
               </button>
               <hr />
+              <div className="label">{t("Panels")}</div>
+              {ALL_PANELS.map((p) => {
+                const shown = !dock.hidden.includes(p);
+                return (
+                  <button key={p} onClick={() => (close(), setPrefs({ layout: { ...layout, dock: shown ? (visiblePanels(dock.root).has(p) ? dock : showPanel(dock, p)) : showPanel(dock, p) } }))}>
+                    {shown ? "✓ " : ""}
+                    {t(PANEL_TITLES[p])}
+                  </button>
+                );
+              })}
+              <button onClick={() => (close(), setPrefs({ layout: { ...layout, dock: undefined } }))}>{t("Reset panel layout")}</button>
+              <hr />
               <button onClick={() => (close(), openDialog("libraries"))}>{t("Libraries…")}</button>
               <button onClick={() => (close(), openDialog("layouts"))}>{t("Panel layout…")}</button>
               {Object.keys(prefs.layoutPresets).map((k) => (
@@ -227,41 +242,32 @@ export function App() {
           ↷
         </button>
       </div>
+      <ProjectTabs />
       {paint.project ? (
         <PaintWorkspace />
       ) : (
-      <div
-        className="main"
-        style={{ gridTemplateColumns: `${layout.showLibrary ? layout.left + "px " : ""}1fr${layout.showRight ? " " + layout.right + "px" : ""}` }}
-      >
-        {layout.showLibrary && (
-          <div className="panel left">
-            <Library />
-          </div>
-        )}
-        <GraphView />
-        {layout.showRight && <div className="panel right">
-          <div className="tabs">
-            <button className={view === "3d" ? "on" : ""} onClick={() => setView("3d")}>
-              {t("3D material")}
-            </button>
-            <button className={view === "2d" ? "on" : ""} onClick={() => setView("2d")}>
-              {t("2D node output")}
-            </button>
-            <button className={view === "ref" ? "on" : ""} onClick={() => setView("ref")}>
-              {t("Reference")}
-            </button>
-          </div>
-          <div style={{ height: layout.previewHeight + "%", display: "flex", minHeight: 200 }}>
-            <div style={{ display: view === "3d" && !rayMaterial ? "flex" : "none", flex: 1, minWidth: 0 }}>
-              <Preview3D active={view === "3d" && !rayMaterial} />
-            </div>
-            {view === "3d" && rayMaterial && <PreviewRay m={rayMaterial} />}
-            {view === "2d" && <Preview2D />}
-            {view === "ref" && <ReferencePanel />}
-          </div>
-          <Inspector />
-        </div>}
+      <div className="main dock-main">
+        <Dock
+          layout={dock}
+          onChange={(d) => setPrefs({ layout: { ...prefs.layout, dock: d } })}
+          center={<GraphView />}
+          panel={(p, shown) => {
+            switch (p) {
+              case "library":
+                return <Library hierarchy={false} />;
+              case "hierarchy":
+                return <Hierarchy docked />;
+              case "preview3d":
+                return rayMaterial ? shown && <PreviewRay m={rayMaterial} /> : <Preview3D active={shown} />;
+              case "preview2d":
+                return shown && <Preview2D />;
+              case "reference":
+                return <ReferencePanel />;
+              case "inspector":
+                return <Inspector />;
+            }
+          }}
+        />
       </div>
       )}
       <div className="statusbar">

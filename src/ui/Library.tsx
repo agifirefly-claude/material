@@ -120,7 +120,8 @@ function ItemContextMenu({ m, onClose }: { m: ItemMenu; onClose: () => void }) {
   );
 }
 
-export function Library() {
+/** the library panel; the hierarchy sits under it unless it is docked on its own */
+export function Library({ hierarchy = true }: { hierarchy?: boolean } = {}) {
   useLang();
   useSyncExternalStore(libraries.subscribe, libraries.getVersion);
   const [q, setQ] = useState("");
@@ -179,12 +180,12 @@ export function Library() {
         {results && !results.length && <div className="empty">{t("No node matches")}</div>}
       </div>
       {menu && <ItemContextMenu m={menu} onClose={() => setMenu(null)} />}
-      <Hierarchy />
+      {hierarchy && <Hierarchy />}
     </>
   );
 }
 
-function Hierarchy() {
+export function Hierarchy({ docked = false }: { docked?: boolean } = {}) {
   useEditor();
   useLang();
   const walk = (g: GenGraph, path: string[], depth: number): React.ReactElement[] => {
@@ -204,7 +205,7 @@ function Hierarchy() {
   };
   const rows = walk(editor.root, [], 1);
   return (
-    <div className="hier scroll">
+    <div className={"hier scroll" + (docked ? " docked" : "")}>
       <h3>{t("Hierarchy")}</h3>
       <div className="tree-row" style={{ color: editor.path.length ? undefined : "#fff" }} onClick={() => editor.goTo(0)}>
         ◆ {editor.title}

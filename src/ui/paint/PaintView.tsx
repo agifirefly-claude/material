@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { HDRLoader } from "three/examples/jsm/loaders/HDRLoader.js";
+import { applyEnvironment, loadEnvironments, useEnvironments, type Stage } from "../preview3d/environments";
 import { paint, usePaint } from "./paintStore";
 import { paintMeshToGeometry } from "./meshes";
 import type { PaintProject } from "../../engine/paint/project";
@@ -105,7 +105,17 @@ export function PaintView() {
     textures: Record<string, THREE.CanvasTexture>;
     dirtyMaps: boolean;
     stroke: StrokeState;
+    stage: Stage;
   } | null>(null);
+  const envs = useEnvironments();
+  // the lighting of the paint view: one of the 3D preview's environments (paint.gd uses the preview environment too)
+  useEffect(() => {
+    loadEnvironments().then(() => {
+      const st = state.current;
+      const env = envs[Math.min(paint.environment, envs.length - 1)];
+      if (st && env) applyEnvironment(st.stage, env, !paint.showSky);
+    });
+  }, [envs, paint.environment, paint.showSky, project]);
 
   useEffect(() => {
     const el = host.current!;
@@ -135,11 +145,11 @@ export function PaintView() {
     const mesh = new THREE.Mesh(paintMeshToGeometry(project.mesh), material);
     scene.add(mesh);
     const pmrem = new THREE.PMREMGenerator(renderer);
-    new HDRLoader().load("hdri/photo_studio_01_1k.hdr", (tex) => {
-      scene.environment = pmrem.fromEquirectangular(tex).texture;
-      tex.dispose();
-    });
-    const st = { renderer, scene, camera, controls, mesh, material, canvases, textures, dirtyMaps: true, stroke: new StrokeState() };
+    const sun = new THREE.DirectionalLight();
+    const ambient = new THREE.AmbientLight();
+    scene.add(sun, ambient);
+    const stage: Stage = { scene, pmrem, sun, ambient, envMaps: new Map() };
+    const st = { stage, renderer, scene, camera, controls, mesh, material, canvases, textures, dirtyMaps: true, stroke: new StrokeState() };
     state.current = st;
     const updateView = () => {
       const w = el.clientWidth,
@@ -232,12 +242,18 @@ export function PaintView() {
     const ctx = overlay.current?.getContext("2d");
     const p = paint.project;
     if (!ctx || !p) return;
+    // painting in texture space through the view: the outline is drawn in texture space too
+    if (pos && paint.textureEngine) {
+      const tp = toPaintSpace(pos).pos;
+      ppos = ppos ? (toPaintSpace(ppos).pos ?? undefined) : undefined;
+      pos = tp;
+    }
     if (!pos || paint.tool >= 4) {
       ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
       return;
     }
     try {
-      const rt = p.painter.brushPreview(pos, ppos ?? pos);
+      const rt = p.painter.brushPreview(pos, ppos ?? pos, false, paint.textureEngine);
       if (rt) p.gpu.present(rt, ctx);
     } catch (err) {
       paint.status = (err as Error).message;
@@ -299,13 +315,13 @@ export function PaintView() {
     const { pos: pp, mode } = toPaintSpace(pos);
     if (paint.tool === 2) {
       if (s.previous && pp && dragging) p.painter.params.pattern_angle = -Math.atan2(pp[1] - s.previous[1], pp[0] - s.previous[0]);
-      showBrush(paint.textureEngine ? null : pos, dragging && s.previous && !paint.textureEngine ? s.previous : pos);
+      showBrush(pos, dragging && s.previous && !paint.textureEngine ? s.previous : pos);
     } else if (paint.tool === 3 && dragging) {
       const off = [pos[0] - s.stampCenter[0], pos[1] - s.stampCenter[1]];
       p.painter.params.brush_size = Math.hypot(off[0], off[1]);
       p.painter.params.pattern_angle = -Math.atan2(off[1], off[0]);
       showBrush(s.stampCenter, s.stampCenter);
-    } else showBrush(paint.textureEngine ? null : pos);
+    } else showBrush(pos);
     if (dragging && (paint.tool === 0 || paint.tool === 1) && pp) paintAt(p, s, pp, pressure, mode);
   };
   const onPointerUp = (e: React.PointerEvent) => {
@@ -355,6 +371,18 @@ export function PaintView() {
       style={{ cursor: paint.eraser ? "crosshair" : "default" }}
     >
       <canvas ref={overlay} className="paint-overlay" />
+      <div className="paint-env" onPointerDown={(e) => e.stopPropagation()}>
+        <select value={Math.min(paint.environment, Math.max(0, envs.length - 1))} onChange={(e) => paint.setEnvironment(+e.target.value)} title={t("Environment")}>
+          {envs.map((env, i) => (
+            <option key={i} value={i}>
+              {t(env.name)}
+            </option>
+          ))}
+        </select>
+        <label title={t("Show the environment's sky behind the model")}>
+          <input type="checkbox" checked={paint.showSky} onChange={(e) => paint.setEnvironment(paint.environment, e.target.checked)} /> {t("sky")}
+        </label>
+      </div>
       <div className="paint-hint">{t("Left drag: paint · Right drag: turn · Middle drag: pan · Wheel: zoom · Shift+drag: size/hardness · Ctrl+drag: pattern")}</div>
     </div>
   );
