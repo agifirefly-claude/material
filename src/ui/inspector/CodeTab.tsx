@@ -89,5 +89,11 @@ export function fmtValue(v: unknown): string {
   if (Array.isArray(v)) return v.length > 12 ? `[${v.slice(0, 12).map((x) => +(+x).toFixed(3)).join(", ")}, …]` : `[${v.map((x) => +(+x).toFixed(3)).join(", ")}]`;
   if (typeof v === "function") return "(set while rendering)";
   if (v && typeof v === "object" && "key" in v) return "texture " + (v as { key: string }).key;
+  if (v && typeof v === "object") {
+    // gradients, curves, colours...: their saved form, shortened
+    const o = v as { serialize?: () => unknown };
+    const s = JSON.stringify(typeof o.serialize === "function" ? o.serialize() : v);
+    return s.length > 120 ? s.slice(0, 117) + "…" : s;
+  }
   return String(v);
 }

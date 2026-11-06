@@ -63,6 +63,9 @@ jobs:
       - name: Command line
         run: npm run test:cli 2>&1 | tee "$LOGS/cli.log"
 
+      - name: UI regression
+        run: npm run test:ui 2>&1 | tee "$LOGS/ui.log"
+
       - name: Upload logs and screenshots
         if: failure()
         uses: actions/upload-artifact@v4

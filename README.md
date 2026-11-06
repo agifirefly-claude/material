@@ -49,10 +49,11 @@ npm run dev
 | `node tests/run-harness.mjs paint <目录>` | 在球体上用库里的笔刷画几笔、撤销、加遮罩和程序图层、保存再读回，存成 PNG |
 | `node tests/run-harness.mjs shot bricks 0 512 out.png` | 把示例材质的某个输出渲染成 PNG |
 | `npm run cli -- export "materials/*.ptex" -t "Godot/Godot 4 Standard" -o build` | 命令行批量导出，见 [docs/命令行.md](docs/命令行.md) |
+| `npm run test:ui` | 界面回归测试（Playwright 驱动真实界面，约 5 分钟），见 [tests/ui/README.md](tests/ui/README.md) |
 | `npm run test:cli` | 命令行导出的测试 |
 | `npm run test:engines` | 用本机的 Godot、Blender 检查导出能否正确导入（未安装的跳过），其他引擎的手动清单见 [docs/本地验证.md](docs/本地验证.md) |
 
-CI（`.github/workflows/ci.yml`）在每次推送和合并请求时运行类型检查、单元测试、翻译检查、构建、节点/示例/SDF、e2e 和命令行测试。不安装游戏引擎，引擎导入在本地检查。
+CI（`.github/workflows/ci.yml`）在每次推送和合并请求时运行类型检查、单元测试、翻译检查、构建、节点/示例/SDF、e2e、命令行测试和界面回归测试。不安装游戏引擎，引擎导入在本地检查。
 
 浏览器需要支持 WebGL2 和浮点渲染目标（`EXT_color_buffer_float`），主流桌面浏览器都支持。
 

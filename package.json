@@ -18,7 +18,8 @@
     "compare:reference": "node scripts/compare-reference.mjs",
     "cli": "node bin/material-pro.mjs",
     "test:cli": "node tests/cli.test.mjs",
-    "test:engines": "node tests/engines/run.mjs"
+    "test:engines": "node tests/engines/run.mjs",
+    "test:ui": "node tests/ui/run.mjs"
   },
   "repository": {
     "type": "git",
