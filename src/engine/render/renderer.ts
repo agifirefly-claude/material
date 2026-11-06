@@ -494,9 +494,10 @@ export class Renderer {
     const gl = this.gl;
     const w = ctx.canvas.width,
       h = ctx.canvas.height;
-    if (this.canvas.width !== w || this.canvas.height !== h) {
-      this.canvas.width = w;
-      this.canvas.height = h;
+    // the GL canvas only grows: resizing it on every call would be slow
+    if (this.canvas.width < w || this.canvas.height < h) {
+      this.canvas.width = Math.max(this.canvas.width, w);
+      this.canvas.height = Math.max(this.canvas.height, h);
     }
     gl.useProgram(this.blitProgram);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -510,7 +511,20 @@ export class Renderer {
     gl.bindVertexArray(this.vao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     ctx.clearRect(0, 0, w, h);
-    ctx.drawImage(this.canvas as CanvasImageSource, 0, 0);
+    ctx.drawImage(this.canvas as CanvasImageSource, 0, this.canvas.height - h, w, h, 0, 0, w, h);
+  }
+
+  /** renders and keeps the result under `key`, re-rendering only when the shader or what it reads changed */
+  renderKeyed(key: string, sc: ShaderCode, size: number, preview = true): { target: Target | null; changed: boolean; error: ShaderError | null } {
+    const before = this.cache.get(key)?.sig;
+    const r = this.renderCached(key, preview ? withPreview(sc, size) : sc, size, false, false, new Set());
+    return { target: r.target, changed: before !== r.sig, error: this.errors.get(key) ?? null };
+  }
+  forget(key: string): void {
+    const c = this.cache.get(key);
+    if (c) this.deleteTarget(c.target);
+    this.cache.delete(key);
+    this.errors.delete(key);
   }
 
   /** forgets cached renders (they are redone on demand) */
