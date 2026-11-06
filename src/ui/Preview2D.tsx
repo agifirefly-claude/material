@@ -84,7 +84,7 @@ export function Preview2D() {
       if (stale || !canvas.current) return;
       try {
         r.time = performance.now() / 1000;
-        const job = r.previews([{ key: "preview2d", sc: viewShaderCode(g, o, view, res), size: res, preview: false, ctx: canvas.current.getContext("2d")!, checker: false, force: true }]);
+        const job = r.previews([{ key: "preview2d", sc: viewShaderCode(g, o, view, res), size: res, preview: false, ctx: canvas.current.getContext("2d")!, checker: false, force: true }], { lane: "view" });
         busy.current = job.catch(() => null);
         const [out] = await job;
         setError(out.error ? out.error.message : "");

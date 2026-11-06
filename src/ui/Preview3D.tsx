@@ -343,7 +343,7 @@ export function Preview3D({ active }: { active: boolean }) {
       }
       let results;
       try {
-        results = await r.previews(jobs);
+        results = await r.previews(jobs, { lane: "view" });
       } catch (e) {
         return console.warn("3D maps", e);
       }

@@ -25,13 +25,13 @@ export type Op =
   /** the pixels of a target, row 0 first: floats, or bytes as an image file stores them */
   | { op: "read"; id: number; f32: boolean; out: number };
 
-export type Lane = "fg" | "bg";
+/** node thumbnails, the big 2D and 3D views, exports: each lane runs its batches in order, the lanes side by side
+ *  (hazards.ts orders them where they touch the same targets) */
+export type Lane = "fg" | "view" | "bg";
 
 export type ToWorker =
   | { type: "batch"; id: number; ops: Op[]; lane: Lane; budgetMs: number }
   | { type: "cancel"; id: number }
-  /** forget every target (the page forgot what they hold) */
-  | { type: "reset" }
   /** for tests: lose the context (WEBGL_lose_context), and get it back */
   | { type: "lose" }
   | { type: "restore" };

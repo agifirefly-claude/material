@@ -1,5 +1,6 @@
 /* The render worker: a WebGL2 context on an OffscreenCanvas, running what the page sends (protocol.ts).
- * Batches of one lane run one after the other; the two lanes (previews, exports) run side by side. */
+ * Batches of one lane run one after the other; the lanes (thumbnails, big views, exports) run side by side, in order
+ * where they touch the same targets (hazards.ts). */
 import { BatchFailure, Executor } from "./executor";
 import type { FromWorker, Lane, ToWorker } from "./protocol";
 
@@ -35,7 +36,7 @@ try {
 }
 
 const cancelled = new Set<number>();
-const queues: Record<Lane, Promise<void>> = { fg: Promise.resolve(), bg: Promise.resolve() };
+const queues: Record<Lane, Promise<void>> = { fg: Promise.resolve(), view: Promise.resolve(), bg: Promise.resolve() };
 
 self.onmessage = (ev: MessageEvent<ToWorker>) => {
   const m = ev.data;
@@ -43,9 +44,6 @@ self.onmessage = (ev: MessageEvent<ToWorker>) => {
   switch (m.type) {
     case "cancel":
       cancelled.add(m.id);
-      break;
-    case "reset":
-      ex.reset();
       break;
     case "lose":
       loseExt?.loseContext();
@@ -56,6 +54,7 @@ self.onmessage = (ev: MessageEvent<ToWorker>) => {
     case "batch":
       {
         const received = performance.now();
+        if (!lost) ex.receive(m.id, m.ops);
         queues[m.lane] = queues[m.lane].then(() => runBatch(m, performance.now() - received));
       }
       break;
@@ -73,6 +72,7 @@ async function runBatch(m: Extract<ToWorker, { type: "batch" }>, queuedMs: numbe
       cancelled: () => cancelled.has(m.id),
       progress: (done, total) => post({ type: "progress", id: m.id, done, total }),
       budgetMs: m.budgetMs,
+      batch: m.id,
     }, m.lane);
     r.stats.queuedMs = queuedMs;
     const transfer: Transferable[] = [];

@@ -1,13 +1,20 @@
 /* The page's side of the render worker: decides what to draw exactly as Renderer does (it runs the same HostBase
  * code: same cache, same signatures), but instead of drawing it writes down operations for the worker (protocol.ts).
  * Its targets are numbers that name the worker's textures. Pictures are decoded on the page, where the DOM is
- * (createImageBitmap decodes off the main thread), and sent to the worker as ImageBitmaps. */
+ * (createImageBitmap decodes off the main thread), and sent to the worker as ImageBitmaps.
+ *
+ * One Recorder records for every lane (thumbnails, big views, exports), so they share the renders of Buffer nodes:
+ * a Buffer one lane drew is not drawn again for another. The worker keeps the lanes in order where they touch the
+ * same targets (hazards.ts). A cached render that a batch still in flight uses is not drawn over: it is drawn into a
+ * new target, and the old one deleted once nothing uses it, so a long export never holds a thumbnail up. */
 import { HostBase } from "./base";
 import type { BuiltShader } from "./shader-source";
 import type { GenImage } from "../gen/texture";
 import { pow2, type PictureSource } from "./sources";
 import { fnv, ShaderError, type Resolved, type Target } from "./types";
 import type { DrawError, Op } from "./protocol";
+import { accessesOf } from "./hazards";
+import type { CacheEntry } from "./host";
 
 /** a target of the worker, known by its id */
 export interface RemoteTarget extends Target {
@@ -22,6 +29,10 @@ export class RecorderLink {
   private nextId = 1;
   /** programs the worker knows, by hash */
   sent = new Set<string>();
+  /** which uniforms of each program sent are samplers */
+  samplers = new Map<string, boolean[]>();
+  /** targets the batches in flight use, with how many of them do */
+  busy = new Map<number, number>();
   /** programs that did not compile there, by hash: drawing them fails at once, as it does in Renderer */
   failed = new Map<string, ShaderError>();
   /** operations to send before the next batch (pictures that finished loading) */
@@ -39,13 +50,43 @@ export class RecorderLink {
   newId(): number {
     return this.nextId++;
   }
+  use(ids: Iterable<number>, by: number): void {
+    for (const id of ids) {
+      const n = (this.busy.get(id) ?? 0) + by;
+      if (n > 0) this.busy.set(id, n);
+      else this.busy.delete(id);
+    }
+  }
   /** the worker forgot every target */
   reset(): void {
     this.pending = [];
     for (const t of this.pendingTransfer) (t as ImageBitmap).close?.();
     this.pendingTransfer = [];
+    this.busy.clear();
     this.pictures.reset();
   }
+}
+
+/** what a recording sends, with the targets it uses (to know which are busy, and what to forget if it fails) */
+export interface Recording {
+  ops: Op[];
+  transfer: Transferable[];
+  /** every target it reads or writes */
+  touched: Set<number>;
+  /** the targets it creates or draws into */
+  written: Set<number>;
+  /** the targets it deletes */
+  deleted: number[];
+  /** the key each target was drawn for (to file the worker's compile errors) */
+  drawKeys: Map<number, string>;
+}
+
+/** the state of a Recorder's cache, to go back to when a recording is not sent */
+export interface RecorderSnapshot {
+  cache: Map<string, CacheEntry>;
+  loopTextures: Map<string, Target>;
+  errors: Map<string, ShaderError>;
+  sent: Set<string>;
 }
 
 export class Recorder extends HostBase {
@@ -54,8 +95,6 @@ export class Recorder extends HostBase {
   /** the key each draw rendered for (to file errors the worker reports under it) */
   private drawKeys = new Map<number, string>();
   private lastKey = "";
-  /** the worker targets it created and has not deleted */
-  readonly owned = new Set<number>();
 
   constructor(readonly link: RecorderLink) {
     super();
@@ -71,15 +110,22 @@ export class Recorder extends HostBase {
 
   createTarget(size: number, f32 = false, mipmap = false, height = size): Target {
     const id = this.link.newId();
-    this.owned.add(id);
     this.ops.push({ op: "create", id, size, height, f32, mipmap });
     const t = { id, tex: null, fbo: null, size, f32, mipmap } as unknown as RemoteTarget;
     if (height !== size) t.height = height;
     return t;
   }
+  /** a cached target a batch in flight still uses is not drawn over: a new one takes its place */
+  reuse(key: string, size: number, f32: boolean, mipmap: boolean): Target {
+    const old = this.cache.get(key)?.target as RemoteTarget | undefined;
+    if (old && this.link.busy.has(old.id)) {
+      this.deleteTarget(old);
+      return this.createTarget(size, f32, mipmap);
+    }
+    return super.reuse(key, size, f32, mipmap);
+  }
   deleteTarget(t: Target | null | undefined): void {
     if (!t) return;
-    this.owned.delete((t as RemoteTarget).id);
     this.ops.push({ op: "delete", id: (t as RemoteTarget).id });
   }
   cached(key: string) {
@@ -99,6 +145,7 @@ export class Recorder extends HostBase {
     if (failed) throw failed;
     if (!this.link.sent.has(hash)) {
       this.link.sent.add(hash);
+      this.link.samplers.set(hash, built.uniforms.map((u) => u.type === "sampler2D"));
       this.ops.push({ op: "program", hash, source: built.source, uniforms: built.uniforms.map((u) => ({ name: u.name, type: u.type, size: u.size })) });
     }
     const vals = built.uniforms.map((u) => {
@@ -122,44 +169,85 @@ export class Recorder extends HostBase {
   }
 
   /** what to send: pictures loaded meanwhile first */
-  take(): { ops: Op[]; transfer: Transferable[] } {
+  take(): Recording {
     const ops = [...this.link.pending, ...this.ops];
     const transfer = [...this.link.pendingTransfer, ...this.transfer];
     this.link.pending = [];
     this.link.pendingTransfer = [];
     this.ops = [];
     this.transfer = [];
-    return { ops, transfer };
+    const touched = new Set<number>(),
+      written = new Set<number>(),
+      deleted: number[] = [];
+    for (const o of ops) {
+      if (o.op === "delete") deleted.push(o.id);
+      const a = accessesOf(o, (p) => this.link.samplers.get(p));
+      for (const id of a.reads) touched.add(id);
+      for (const id of a.writes) touched.add(id), written.add(id);
+    }
+    const drawKeys = this.drawKeys;
+    this.drawKeys = new Map();
+    return { ops, transfer, touched, written, deleted, drawKeys };
   }
 
   /** files the worker's compile errors under the keys that rendered them, so they show as Renderer's would */
-  applyErrors(errors: DrawError[]): void {
+  applyErrors(errors: DrawError[], drawKeys: Map<number, string>): void {
     for (const e of errors) {
       const err = new ShaderError(e.message, "", e.log);
       this.link.failed.set(e.program, err);
-      let key = this.drawKeys.get(e.target);
+      let key = drawKeys.get(e.target);
       for (const [k, c] of this.cache) if ((c.target as RemoteTarget).id === e.target) key = k;
       if (key) this.errors.set(key, err);
     }
-    this.drawKeys.clear();
   }
 
-  /** the worker lost its targets (a failed batch, a lost context): everything is drawn again on demand */
+  /** a batch did not get to the end: forgets the renders it was to draw (they are drawn again when asked for), and
+   *  sends the deletes it did not get to. Returns whether a render was forgotten. */
+  failed(rec: Pick<Recording, "written" | "deleted">): boolean {
+    let n = 0;
+    for (const [k, c] of [...this.cache]) {
+      if (!rec.written.has((c.target as RemoteTarget).id)) continue;
+      this.cache.delete(k);
+      this.errors.delete(k);
+      n++;
+    }
+    for (const [k, t] of [...this.loopTextures]) if (rec.written.has((t as RemoteTarget).id)) this.loopTextures.delete(k);
+    this.link.pictures.forget(rec.written);
+    for (const id of new Set([...rec.written, ...rec.deleted])) this.link.pending.push({ op: "delete", id });
+    return n > 0;
+  }
+
+  /** the state to go back to if what is recorded next is not sent (nothing must be recorded and not taken yet) */
+  snapshot(): RecorderSnapshot {
+    return {
+      cache: new Map(this.cache),
+      loopTextures: new Map(this.loopTextures),
+      errors: new Map(this.errors),
+      sent: new Set(this.link.sent),
+    };
+  }
+  /** forgets what was recorded since the snapshot: the worker never gets it */
+  rollback(s: RecorderSnapshot): void {
+    this.cache = s.cache;
+    this.loopTextures = s.loopTextures;
+    this.errors = s.errors;
+    this.link.sent = s.sent;
+    for (const t of this.transfer) (t as ImageBitmap).close?.();
+    this.ops = [];
+    this.transfer = [];
+    this.drawKeys.clear();
+    this.webcam.reset();
+  }
+
+  /** the worker lost its targets (a lost context): everything is drawn again on demand */
   reset(): void {
     this.cache.clear();
     this.loopTextures.clear();
     this.drawKeys.clear();
-    this.owned.clear();
     this.webcam.reset();
     for (const t of this.transfer) (t as ImageBitmap).close?.();
     this.ops = [];
     this.transfer = [];
-  }
-
-  /** the targets of every render it keeps (to free them when this recorder is dropped) */
-  dispose(): void {
-    for (const c of this.cache.values()) this.deleteTarget(c.target);
-    this.cache.clear();
   }
 }
 
@@ -210,6 +298,11 @@ export class PictureStore implements PictureSource {
   reset(): void {
     // the worker forgot the textures: load again when asked
     this.pictures.clear();
+  }
+
+  /** pictures whose targets a failed batch was to fill: loaded again when asked for */
+  forget(ids: Set<number>): void {
+    for (const [url, p] of this.pictures) if (p.target && ids.has(p.target.id)) this.pictures.delete(url);
   }
 
   prune(used: Set<string>): void {
