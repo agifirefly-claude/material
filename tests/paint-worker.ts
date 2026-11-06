@@ -21,7 +21,7 @@ declare global {
     bakeBlocking: (mode: "sync" | "worker" | "page", size: number, rays: number) => Promise<Blocking & { where: string }>;
     compositeBlocking: (mode: "sync" | "async", size: number, layers: number, rounds: number) => Promise<Blocking>;
     saveBlocking: (mode: "sync" | "async", size: number) => Promise<Blocking & { bytes: number }>;
-    paintCompare: (size: number) => Promise<{ maps: Record<string, number>; pngs: number; pngsDiffer: string[]; ready: boolean }>;
+    paintCompare: (size: number) => Promise<{ maps: Record<string, number>; pngs: number; pngsDiffer: string[]; ready: boolean; viewDiff: number; painted: number }>;
   }
 }
 
@@ -163,10 +163,14 @@ function bigProject(r: Renderer, size: number, layers: number): PaintProject {
     const l = p.addLayer(0)!;
     for (const [k, t] of Object.entries(l.textures)) p.gpu.clear(t, [((i + 1) * 0.13) % 1, k.length * 0.1, 0.5, 0.5]);
   }
+  p.update();
+  // the setup's GPU work is done before measuring
+  p.gpu.read(p.compositor.maps.albedo!, 0, 0, 1, 1);
   return p;
 }
 
-/** what the 3D paint view does when the maps change: composite, then draw the five maps it shows into canvases */
+/** what the 3D paint view does when the maps change: before, composite and draw the five maps it shows into canvases
+ *  (which waits for the GPU); now, composite and read them back asynchronously (compositeAsync, readBytesAsync) */
 window.compositeBlocking = async (mode, size, layers, rounds) => {
   await window.paintReady;
   const r = new Renderer();
@@ -181,8 +185,10 @@ window.compositeBlocking = async (mode, size, layers, rounds) => {
   const res = await measure(async () => {
     for (let i = 0; i < rounds; i++) {
       p.setLayerAlpha(p.layers[0], "albedo", 0.5 + i * 0.01);
-      if (mode === "async") await p.compositeAsync();
-      present();
+      if (mode === "async") {
+        await p.compositeAsync();
+        await p.gpu.readBytesAsync(MAPS_3D.map((k) => p.compositor.maps[k]!), true, true);
+      } else present();
       await new Promise((res) => requestAnimationFrame(() => res(null)));
     }
   });
@@ -252,5 +258,18 @@ window.paintCompare = async (size) => {
   // encodePng and encodePngAsync of the same target
   const t = a.compositor.maps.albedo!;
   if (maxDiff(encodePng(a.gpu, t), await encodePngAsync(a.renderer, t)) !== 0) pngsDiffer.push("albedo map");
-  return { maps, pngs: pngs.length, pngsDiffer, ready: !readyAtFirst && ready };
+  // the 3D view's 8 bit maps: what present() draws
+  const [bytes] = await a.gpu.readBytesAsync([t], true, true);
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d", { willReadFrequently: true })!;
+  a.gpu.present(t, ctx, { opaque: true });
+  const shown = ctx.getImageData(0, 0, size, size).data;
+  let viewDiff = 0;
+  for (let y = 0; y < size; y++) viewDiff = Math.max(viewDiff, maxDiff(bytes.subarray(y * size * 4, (y + 1) * size * 4), shown.subarray((size - 1 - y) * size * 4, (size - y) * size * 4)));
+  // the strokes painted something
+  const px = a.gpu.read(t);
+  let painted = 0;
+  for (let i = 0; i < px.length; i += 4) if (Math.abs(px[i] - 1) > 0.05 || Math.abs(px[i + 1] - 1) > 0.05) painted++;
+  return { maps, pngs: pngs.length, pngsDiffer, ready: !readyAtFirst && ready, viewDiff, painted };
 };

@@ -4,7 +4,8 @@ import { useSyncExternalStore } from "react";
 import { editor } from "../store";
 import { PaintProject, findFile, unpackFiles, type Float32ArrayImage, type ModelFile } from "../../engine/paint/project";
 import { installMeshMaps, meshMapBaked } from "../../engine/paint/meshmaps";
-import { encodePngAsync } from "../../engine/paint/paint-client";
+import { bakeMap, encodePngAsync } from "../../engine/paint/paint-client";
+import { PAINTER_MAPS } from "../../engine/paint/painter";
 import type { PaintMesh } from "../../engine/paint/mesh";
 import type { Dict } from "../../engine/gen/base";
 import type { LibraryItem } from "../../engine/registry";
@@ -112,8 +113,16 @@ class PaintState {
       this.emit();
     };
     if (!project.painter.ready()) {
+      // the maps painting reads are baked (in the paint worker) before the tab opens; the page keeps running
       this.baking = true;
       this.setStatus(t("Baking mesh maps…"));
+      try {
+        await Promise.all(PAINTER_MAPS.map((n) => bakeMap(project.renderer, project.mesh, n, project.size)));
+      } catch (e) {
+        console.error("mesh map bake", e);
+      }
+      this.baking = false;
+      this.setStatus("");
     }
     await this.loadBrushes();
     if (!project.brushGraph) project.setBrush(this.brushes.find((b) => b.tree_item === "Simple/Uniform") ?? this.brushes[0], false);
