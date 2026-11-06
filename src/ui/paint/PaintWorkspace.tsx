@@ -148,11 +148,11 @@ export function NewPaintDialog({ onClose }: { onClose: () => void }) {
               <label>{t("File")}</label>
               <button
                 onClick={async () => {
-                  const [f] = await pickFiles(".obj,.glb,.gltf");
+                  const [f] = await pickFiles(".obj,.glb,.gltf,.fbx");
                   if (f) setFile(f);
                 }}
               >
-                {file ? file.name : t("Choose .obj / .glb / .gltf…")}
+                {file ? file.name : t("Choose .obj / .glb / .gltf / .fbx…")}
               </button>
             </div>
           )}
@@ -181,7 +181,7 @@ export function NewPaintDialog({ onClose }: { onClose: () => void }) {
 }
 
 export async function openPaintProject() {
-  const files = await pickFiles(".zip,.mmpp,.png,.obj,.glb,.gltf", true);
+  const files = await pickFiles(".zip,.mmpp,.png,.obj,.glb,.gltf,.fbx", true);
   if (!files.length) return;
   try {
     editor.setStatus(t("Opening the paint project…"));

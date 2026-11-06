@@ -11,6 +11,8 @@ export interface Target {
   tex: WebGLTexture;
   fbo: WebGLFramebuffer;
   size: number;
+  /** when not square: the height (size is then the width) */
+  height?: number;
   f32: boolean;
   mipmap: boolean;
 }
@@ -163,11 +165,11 @@ export class Renderer {
   }
 
   /* ---------- targets ---------- */
-  createTarget(size: number, f32 = false, mipmap = false): Target {
+  createTarget(size: number, f32 = false, mipmap = false, height = size): Target {
     const gl = this.gl;
     const tex = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.texStorage2D(gl.TEXTURE_2D, mipmap ? Math.floor(Math.log2(size)) + 1 : 1, f32 ? gl.RGBA32F : gl.RGBA16F, size, size);
+    gl.texStorage2D(gl.TEXTURE_2D, mipmap ? Math.floor(Math.log2(Math.max(size, height))) + 1 : 1, f32 ? gl.RGBA32F : gl.RGBA16F, size, height);
     const linear = !f32 || this.floatLinear;
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, linear ? (mipmap ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR) : gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, linear ? gl.LINEAR : gl.NEAREST);
@@ -176,7 +178,7 @@ export class Renderer {
     const fbo = gl.createFramebuffer()!;
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-    return { tex, fbo, size, f32, mipmap };
+    return height === size ? { tex, fbo, size, f32, mipmap } : { tex, fbo, size, f32, mipmap, height };
   }
   deleteTarget(t: Target | null | undefined): void {
     if (!t) return;
@@ -468,12 +470,12 @@ export class Renderer {
     const { program, locations } = this.program(built.source);
     gl.useProgram(program);
     gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo);
-    gl.viewport(0, 0, target.size, target.size);
+    gl.viewport(0, 0, target.size, target.height ?? target.size);
     const loc = (n: string) => {
       if (!locations.has(n)) locations.set(n, gl.getUniformLocation(program, n));
       return locations.get(n)!;
     };
-    gl.uniform2f(loc("mm_size"), target.size, target.size);
+    gl.uniform2f(loc("mm_size"), target.size, target.height ?? target.size);
     gl.uniform1f(loc("elapsed_time"), this.time);
     let unit = 0;
     for (const u of built.uniforms) {
@@ -543,7 +545,7 @@ export class Renderer {
   clearTarget(t: Target): void {
     const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo);
-    gl.viewport(0, 0, t.size, t.size);
+    gl.viewport(0, 0, t.size, t.height ?? t.size);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
   }
@@ -557,8 +559,9 @@ export class Renderer {
   readPixels(t: Target): Float32Array {
     const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo);
-    const out = new Float32Array(t.size * t.size * 4);
-    gl.readPixels(0, 0, t.size, t.size, gl.RGBA, gl.FLOAT, out);
+    const h = t.height ?? t.size;
+    const out = new Float32Array(t.size * h * 4);
+    gl.readPixels(0, 0, t.size, h, gl.RGBA, gl.FLOAT, out);
     return out;
   }
 
@@ -566,7 +569,7 @@ export class Renderer {
     const px = this.readPixels(t);
     const data = new Uint8ClampedArray(px.length);
     for (let i = 0; i < px.length; i++) data[i] = Math.round(Math.min(1, Math.max(0, px[i])) * 255);
-    return new ImageData(data, t.size, t.size);
+    return new ImageData(data, t.size, t.height ?? t.size);
   }
 
   /** draws a target into a 2D canvas (with a checkerboard under transparency) */

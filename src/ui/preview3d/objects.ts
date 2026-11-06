@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 export interface ObjectParam {
@@ -87,8 +88,8 @@ function prism(tessellated: boolean): THREE.BufferGeometry {
 }
 
 /** generated geometry of an object (not models) */
-export function buildGeometry(key: string, params: Record<string, number>, tessellated: boolean): THREE.BufferGeometry {
-  const t = tessellated ? 4 : 1;
+export function buildGeometry(key: string, params: Record<string, number>, tessellated: boolean, detail = 4): THREE.BufferGeometry {
+  const t = tessellated ? Math.max(1, detail) : 1;
   switch (key) {
     case "cube":
       return new RoundedBoxGeometry(1, 1, 1, Math.max(2, 4 * t), Math.max(0.001, (params.chamfer ?? 0.2) * 0.25));
@@ -114,6 +115,7 @@ export async function loadModel(source: File | string): Promise<THREE.BufferGeom
   try {
     let root: THREE.Object3D;
     if (/\.obj$/i.test(name)) root = new OBJLoader().parse(isFile ? await source.text() : await (await fetch(url)).text());
+    else if (/\.fbx$/i.test(name)) root = await new FBXLoader().loadAsync(url);
     else root = (await new GLTFLoader().loadAsync(url)).scene;
     root.updateMatrixWorld(true);
     const geos: THREE.BufferGeometry[] = [];

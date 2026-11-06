@@ -19,9 +19,19 @@ export interface PostProcess {
   brightness: number;
   contrast: number;
   saturation: number;
+  /** Godot's tonemap_white (Reinhard, Filmic, ACES), tonemap_agx_white and tonemap_agx_contrast */
+  tonemapWhite: number;
+  agxWhite: number;
+  agxContrast: number;
   dof: boolean;
-  dofAperture: number;
-  dofMaxBlur: number;
+  /** Godot's dof_blur_far/near_enabled, _distance, _transition and dof_blur_amount */
+  dofFar: boolean;
+  dofNear: boolean;
+  dofFarDistance: number;
+  dofFarTransition: number;
+  dofNearDistance: number;
+  dofNearTransition: number;
+  dofAmount: number;
 }
 export interface Preview3DSettings {
   object: string;
@@ -48,9 +58,17 @@ export const DEFAULT_POST: PostProcess = {
   brightness: 1,
   contrast: 1,
   saturation: 1,
+  tonemapWhite: 1,
+  agxWhite: 16.29,
+  agxContrast: 1.25,
   dof: false,
-  dofAperture: 0.002,
-  dofMaxBlur: 0.01,
+  dofFar: true,
+  dofNear: false,
+  dofFarDistance: 10,
+  dofFarTransition: 5,
+  dofNearDistance: 2,
+  dofNearTransition: 1,
+  dofAmount: 0.1,
 };
 export function defaultObjectSettings(key: string): ObjectSettings {
   const o = PREVIEW_OBJECTS.find((x) => x.key === key)!;

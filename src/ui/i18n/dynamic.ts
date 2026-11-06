@@ -6,6 +6,9 @@ export const DYNAMIC_KEYS: string[] = [
   // 3D preview: rotation speeds, tonemap modes, objects and their settings (preview3d/Menus.tsx, postprocess.ts, objects.ts)
   "Pause", "Slow", "Medium", "Fast",
   "Linear", "Reinhard", "Filmic", "ACES", "AgX",
+  // post process fields (preview3d/Menus.tsx PostProcessMenu)
+  "Exposure", "White", "White point", "Contrast", "Intensity", "Strength", "Threshold", "Brightness", "Saturation",
+  "Far distance", "Far transition", "Near distance", "Near transition", "Blur amount",
   "Cube", "Chamfer", "Cylinder", "Sphere", "Plane", "Curvature", "Prism", "Torus", "Suzanne", "Pillow", "Vase", "Custom model",
   // 2D preview view options (preview2d/view.ts, Preview2D.tsx)
   "Extend", "Repeat", "Clamp", "None", "Corners", "Lines", "Grid", "Light", "Mid-tones", "Dark", "Small", "Large",

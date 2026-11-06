@@ -106,7 +106,11 @@ Material Maker 的节点代码按桌面 GLSL 4.50 写（在 Godot 里作为 Vulk
 
 ## 还没有移植的部分
 
-- 从 Material Maker 网站下载共享节点、导出目标里的自定义 GDScript
+- 导出目标里的自定义 GDScript（Material Maker 自带的导出目标都没有用到）
+
+按需求不迁移：Material Maker 网站的登录，以及在网站上下载和分享节点、材质、环境。
+
+逐项对照见 [docs/迁移清单.md](docs/迁移清单.md)。
 
 ## 许可证
 

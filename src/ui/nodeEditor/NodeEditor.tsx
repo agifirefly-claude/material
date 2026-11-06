@@ -14,6 +14,7 @@ import { GradientEdit } from "../widgets/GradientEdit";
 import { CurveEdit, LatticeEdit, PixelsEdit, PolygonEdit, SplinesEdit } from "../widgets/ShapeEdits";
 import { FLOAT_CONTROLS, PARAMETER_TYPES, defaultsFor, draftFromModel, modelFromDraft, outputType } from "./model";
 import { t, useLang } from "../i18n";
+import { CodeEdit } from "../widgets/CodeEdit";
 
 type Tab = "general" | "outputs" | "code" | "instance" | "global" | "preview" | "exports" | "json";
 
@@ -62,9 +63,7 @@ const Text = ({ value, onChange, mono, placeholder }: { value: string; onChange:
 const Num = ({ value, onChange, step }: { value: number; onChange: (v: number) => void; step?: number }) => (
   <input type="number" value={Number.isFinite(value) ? value : 0} step={step ?? "any"} onChange={(e) => onChange(+e.target.value)} style={{ width: 70 }} />
 );
-const Code = ({ value, onChange, rows = 20 }: { value: string; onChange: (v: string) => void; rows?: number }) => (
-  <textarea className="ne-code" value={value ?? ""} rows={rows} spellCheck={false} onChange={(e) => onChange(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
-);
+const Code = ({ value, onChange, rows = 20 }: { value: string; onChange: (v: string) => void; rows?: number }) => <CodeEdit className="ne-code" value={value ?? ""} onChange={onChange} rows={rows} />;
 
 /** the default value of a parameter, edited with the same widgets as the value */
 function DefaultEdit({ p, set }: { p: Dict; set: (p: Dict) => void }) {

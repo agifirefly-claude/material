@@ -316,3 +316,22 @@ select { padding: 2px 4px; }
 .dock-hint.right { right: 0; top: 0; bottom: 0; width: 35%; }
 .dock-hint.top { left: 0; right: 0; top: 0; height: 35%; }
 .dock-hint.bottom { left: 0; right: 0; bottom: 0; height: 35%; }
+/* GLSL code editor: a transparent textarea over its highlighted text */
+.code-edit { position: relative; display: flex; }
+.code-edit-view, .code-edit-input { margin: 0; padding: 6px; border: 1px solid var(--line); border-radius: 4px; font: 12px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace; white-space: pre; tab-size: 4; overflow: auto; box-sizing: border-box; }
+.code-edit-view { position: absolute; inset: 0; max-height: none; pointer-events: none; background: var(--bg); }
+.code-edit-input { position: relative; width: 100%; flex: 1; resize: vertical; background: transparent; color: transparent; caret-color: #fff; overflow-wrap: normal; }
+.code-edit-input::selection { background: #4f9cf055; color: transparent; }
+.code .fn { color: #d2a8ff; }
+
+/* node header buttons (node_minimize_button / node_close_button) */
+.mm-node .head .node-btn { border: none; background: none; padding: 0 3px; line-height: 1; color: var(--text3); font-size: 12px; }
+.mm-node .head .node-btn:hover { color: #fff; }
+/* portals (apertures), label beside or above (aperture_label_position) */
+.mm-portal { display: flex; align-items: center; gap: 6px; padding: 2px; }
+.mm-portal.top { flex-direction: column; gap: 2px; }
+.mm-portal.selected .mm-portal-dot { outline: 2px solid var(--accent); }
+.mm-portal-dot { position: relative; width: 18px; height: 18px; border-radius: 50%; border: 2px solid #0008; }
+.mm-portal-label { color: var(--text); font-size: 11px; white-space: nowrap; background: #0006; padding: 0 5px; border-radius: 4px; }
+.mm-portal.side.in { flex-direction: row-reverse; }
+.mm-portal.side.out { flex-direction: row; }

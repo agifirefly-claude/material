@@ -56,7 +56,7 @@ export function ModelMenu({ onLoadModel, hasCustom }: { onLoadModel: () => void;
               ))}
             </select>
           </div>
-          <button onClick={onLoadModel}>{t("Load a model… (.obj, .glb, .gltf)")}</button>
+          <button onClick={onLoadModel}>{t("Load a model… (.obj, .glb, .gltf, .fbx)")}</button>
           <div className="sect">{t("Configure {0}", t(obj.label))}</div>
           <div className="row">
             <label>{t("UV scale")}</label>
@@ -138,7 +138,7 @@ export function PostProcessMenu() {
   const p = s.post;
   const f = (k: keyof PostProcess, label: string, min: number, max: number, step = 0.01) => (
     <div className="row" key={k}>
-      <label>{label}</label>
+      <label>{t(label)}</label>
       <FloatEdit value={p[k] as number} min={min} max={max} step={step} allowExpr={false} onChange={(v) => updatePost({ [k]: Number(v) })} />
     </div>
   );
@@ -158,6 +158,7 @@ export function PostProcessMenu() {
             </select>
           </div>
           {f("exposure", "Exposure", 0, 4)}
+          {p.tonemap === "agx" ? [f("agxWhite", "White point", 0, 16.5), f("agxContrast", "Contrast", 1, 2)] : p.tonemap !== "linear" ? f("tonemapWhite", "White", 0, 16) : null}
           <div className="sect">
             <label>
               <input type="checkbox" checked={p.glow} onChange={(e) => updatePost({ glow: e.target.checked })} />{" "}{t("Glow")}
@@ -175,7 +176,21 @@ export function PostProcessMenu() {
               <input type="checkbox" checked={p.dof} onChange={(e) => updatePost({ dof: e.target.checked })} />{" "}{t("Depth of field")}
             </label>
           </div>
-          {p.dof && [f("dofAperture", "Aperture", 0, 0.02, 0.0005), f("dofMaxBlur", "Max blur", 0, 0.05, 0.001)]}
+          {p.dof && (
+            <>
+              <div className="row">
+                <label>{t("Blur far")}</label>
+                <input type="checkbox" checked={p.dofFar} onChange={(e) => updatePost({ dofFar: e.target.checked })} />
+              </div>
+              {p.dofFar && [f("dofFarDistance", "Far distance", 0.01, 64, 0.1), f("dofFarTransition", "Far transition", 0.01, 64, 0.1)]}
+              <div className="row">
+                <label>{t("Blur near")}</label>
+                <input type="checkbox" checked={p.dofNear} onChange={(e) => updatePost({ dofNear: e.target.checked })} />
+              </div>
+              {p.dofNear && [f("dofNearDistance", "Near distance", 0.01, 64, 0.1), f("dofNearTransition", "Near transition", 0.01, 64, 0.1)]}
+              {f("dofAmount", "Blur amount", 0, 1, 0.01)}
+            </>
+          )}
           <button onClick={() => updatePost({ ...DEFAULT_POST })}>{t("Reset")}</button>
         </div>
       )}

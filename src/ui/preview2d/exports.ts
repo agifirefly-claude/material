@@ -5,9 +5,15 @@ import { ShaderCode, type TextureRef } from "../../engine/shader-code";
 import type { Renderer, Target } from "../../engine/render/renderer";
 import { downloadBlob } from "../exporting";
 import { imageShaderCode } from "./view";
+import { encodeExr } from "./exr";
 
-export const IMAGE_TYPES = { png: "image/png", jpg: "image/jpeg", webp: "image/webp" } as const;
+export const IMAGE_TYPES = { png: "image/png", jpg: "image/jpeg", webp: "image/webp", exr: "image/x-exr" } as const;
 export type ImageType = keyof typeof IMAGE_TYPES;
+
+/** a float target as an OpenEXR file (half floats, what Material Maker writes for .exr) */
+export function targetExr(r: Renderer, t: Target): Blob {
+  return new Blob([encodeExr(r.readPixels(t), t.size, t.height ?? t.size) as BlobPart], { type: IMAGE_TYPES.exr });
+}
 
 export function canvasOf(img: ImageData): HTMLCanvasElement {
   const c = document.createElement("canvas");
@@ -19,9 +25,14 @@ export function canvasOf(img: ImageData): HTMLCanvasElement {
 export const canvasBlob = (c: HTMLCanvasElement, type: ImageType = "png") => new Promise<Blob>((res) => c.toBlob((b) => res(b!), IMAGE_TYPES[type], 0.92));
 
 /** one output of a node as an image of a given size */
-export function renderImage(r: Renderer, g: Gen, output: number, size: number, time?: number): ImageData {
+export function renderImage(r: Renderer, g: Gen, output: number, size: number, time?: number, height = size): ImageData {
   if (time !== undefined) r.time = time;
-  const t = r.render(imageShaderCode(g, output, size), size, { preview: false });
+  let t: Target;
+  if (height === size) t = r.render(imageShaderCode(g, output, size), size, { preview: false });
+  else {
+    t = r.createTarget(size, false, false, height);
+    r.renderInto(imageShaderCode(g, output, Math.max(size, height)), t);
+  }
   const img = r.toImageData(t);
   r.deleteTarget(t);
   return img;
@@ -33,6 +44,12 @@ export function interpretFileName(pattern: string, g: Gen, output: number, size:
 }
 
 export async function exportImage(r: Renderer, g: Gen, output: number, size: number, type: ImageType, name: string) {
+  if (type === "exr") {
+    const t = r.render(imageShaderCode(g, output, size), size, { preview: false, f32: true });
+    downloadBlob(targetExr(r, t), `${name}.exr`);
+    r.deleteTarget(t);
+    return;
+  }
   const c = canvasOf(renderImage(r, g, output, size));
   downloadBlob(await canvasBlob(c, type), `${name}.${type}`);
 }
@@ -40,6 +57,8 @@ export async function exportImage(r: Renderer, g: Gen, output: number, size: num
 /* ---------- animation ---------- */
 export interface AnimationSettings {
   size: number;
+  /** frame height, when not square */
+  height?: number;
   begin: number;
   end: number;
   images: number;
@@ -52,7 +71,7 @@ export async function exportAnimation(r: Renderer, g: Gen, output: number, s: An
   const frames: ImageData[] = [];
   const saved = r.time;
   for (let i = 0; i < s.images; i++) {
-    frames.push(renderImage(r, g, output, s.size, s.begin + ((s.end - s.begin) * i) / s.images));
+    frames.push(renderImage(r, g, output, s.size, s.begin + ((s.end - s.begin) * i) / s.images, s.height ?? s.size));
     progress?.((i + 1) / s.images);
     await new Promise((res) => setTimeout(res, 0));
   }
@@ -72,10 +91,11 @@ export async function exportAnimation(r: Renderer, g: Gen, output: number, s: An
     rows = Math.floor((s.images - 1) / cols) + 1;
   }
   const sheet = document.createElement("canvas");
+  const fh = s.height ?? s.size;
   sheet.width = s.size * cols;
-  sheet.height = s.size * rows;
+  sheet.height = fh * rows;
   const ctx = sheet.getContext("2d")!;
-  frames.forEach((f, i) => ctx.putImageData(f, s.size * (i % cols), s.size * Math.floor(i / cols)));
+  frames.forEach((f, i) => ctx.putImageData(f, s.size * (i % cols), fh * Math.floor(i / cols)));
   return canvasBlob(sheet);
 }
 
@@ -149,11 +169,13 @@ export class TaaRender {
     private r: Renderer,
     g: Gen,
     output: number,
-    public size: number,
+    public width: number,
+    public height = width,
   ) {
-    this.acc = r.createTarget(size, true);
-    this.avg = r.createTarget(size, true);
-    const src = imageShaderCode(g, output, size);
+    // like Material Maker's TAA window, any width and height: uv still covers 0..1 on both axes
+    this.acc = r.createTarget(width, true, false, height);
+    this.avg = r.createTarget(width, true, false, height);
+    const src = imageShaderCode(g, output, Math.max(width, height));
     this.accumulate = Object.assign(new ShaderCode(), src);
     this.accumulate.uniforms = [...src.uniforms];
     this.accumulate.addUniform("mm_jitter", "vec2", [0, 0]);

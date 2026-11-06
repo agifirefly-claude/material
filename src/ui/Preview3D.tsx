@@ -13,6 +13,7 @@ import { CameraMenu, EnvironmentMenu, ModelMenu, PostProcessMenu } from "./previ
 import { setCurrentMesh } from "../engine/paint/mesh";
 import { geometryToPaintMesh } from "./paint/meshes";
 import { t as tr } from "./i18n";
+import { getPrefs, usePrefs } from "./prefs";
 
 const MAP_KEYS = ["albedo", "orm", "emission", "normal", "depth"] as const;
 /** model_menu.gd rotation speeds, in radians per second */
@@ -37,7 +38,9 @@ export function Preview3D({ active }: { active: boolean }) {
     stage: Stage;
     post: PostProcessor;
   } | null>(null);
-  const [res, setRes] = useState(512);
+  const prefs = usePrefs();
+  const [res, setRes] = useState(() => getPrefs().preview3dResolution);
+  useEffect(() => setRes(prefs.preview3dResolution), [prefs.preview3dResolution]);
   const [displace, setDisplace] = useState(false);
   const [note, setNote] = useState("");
   const [animTick, setAnimTick] = useState(0);
@@ -147,11 +150,14 @@ export function Preview3D({ active }: { active: boolean }) {
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const now = performance.now();
+      // Material Maker's fps_limit
+      const fps = getPrefs().fpsLimit;
+      if (fps > 0 && now - last < 1000 / fps - 2) return;
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       pivot.rotateY(ROTATION_SPEEDS[getSettings().rotationSpeed] * dt);
       controls.update();
-      post.draw(camera.position.distanceTo(controls.target));
+      post.draw();
     };
     loop();
     return () => {
@@ -166,7 +172,7 @@ export function Preview3D({ active }: { active: boolean }) {
 
   // the object, its shape parameters and tessellation (preview_mesh.gd update_mesh)
   const os = objectSettings(settings.object);
-  const shapeKey = JSON.stringify([settings.object, os.params, os.tessellated]);
+  const shapeKey = JSON.stringify([settings.object, os.params, os.tessellated, prefs.tessellationDetail]);
   useEffect(() => {
     const t = three.current!;
     const obj = objectByKey(settings.object);
@@ -191,7 +197,7 @@ export function Preview3D({ active }: { active: boolean }) {
         models.current.set(obj.url, p);
       }
       p.then((g) => use(g, false)).catch((e) => editor.setStatus(tr("Cannot load the model: {0}", e)));
-    } else use(buildGeometry(obj.key, os.params, os.tessellated), true);
+    } else use(buildGeometry(obj.key, os.params, os.tessellated, getPrefs().tessellationDetail), true);
     return () => {
       live = false;
     };
@@ -231,7 +237,7 @@ export function Preview3D({ active }: { active: boolean }) {
   const loadCustom = () => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".obj,.glb,.gltf";
+    input.accept = ".obj,.glb,.gltf,.fbx";
     input.onchange = async () => {
       const f = input.files?.[0];
       if (!f) return;

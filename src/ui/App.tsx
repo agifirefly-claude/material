@@ -95,6 +95,14 @@ export function App() {
   const [newPaint, setNewPaint] = useState(false);
   usePaint();
   const [toast, setToast] = useState("");
+  // Material Maker's confirm_quit: the browser asks before leaving with changes
+  useEffect(() => {
+    const h = (e: BeforeUnloadEvent) => {
+      if (getPrefs().confirmQuit && editor.canUndo) e.preventDefault();
+    };
+    window.addEventListener("beforeunload", h);
+    return () => window.removeEventListener("beforeunload", h);
+  }, []);
   useEffect(() => {
     if (!editor.status) return;
     setToast(editor.status);
