@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { editor, useEditor } from "./store";
 import type { GenMaterial } from "../engine/gen/misc";
 import { raymarchPreview, type RayShape } from "../engine/preview3d";
+import { t } from "./i18n";
 
 /** the 3D preview of materials evaluated in 3D space, rendered by the material renderer itself */
 export function PreviewRay({ m }: { m: GenMaterial }) {
@@ -32,18 +33,18 @@ export function PreviewRay({ m }: { m: GenMaterial }) {
       <div className="tools">
         {!isRaymarch && m.getInputDefs().some((d) => d.name === "albedo_tex") && (
           <select value={shape} onChange={(e) => setShape(e.target.value as RayShape)}>
-            <option value="sphere">sphere</option>
-            <option value="cube">cube</option>
+            <option value="sphere">{t("sphere")}</option>
+            <option value="cube">{t("cube")}</option>
           </select>
         )}
         <select value={size} onChange={(e) => setSize(+e.target.value)}>
           {[256, 384, 512, 768].map((s) => (
             <option key={s} value={s}>
-              {s}px
+              {s}{t("px")}
             </option>
           ))}
         </select>
-        <span style={{ color: "var(--text3)" }}>drag to turn · wheel to zoom</span>
+        <span style={{ color: "var(--text3)" }}>{t("drag to turn · wheel to zoom")}</span>
       </div>
       <div className="body">
         <canvas

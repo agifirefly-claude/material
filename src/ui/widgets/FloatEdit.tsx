@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { t } from "../i18n";
 
 /** Material Maker's float field: drag sideways to change, double click to type a number or an expression. */
 export function FloatEdit({ value, min = 0, max = 1, step = 0.01, onChange, onCommit, allowExpr = true, title }: {
@@ -50,7 +51,7 @@ export function FloatEdit({ value, min = 0, max = 1, step = 0.01, onChange, onCo
   return (
     <div
       className={"float-edit nodrag" + (isNum ? "" : " expr")}
-      title={title ?? (isNum ? `${min} … ${max}` : "expression")}
+      title={title ?? (isNum ? `${min} … ${max}` : t("expression"))}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         e.currentTarget.setPointerCapture(e.pointerId);

@@ -80,10 +80,10 @@ function MMNodeInner({ id, data, selected }: NodeProps & { data: NodeData }) {
         <span>{t(g.getTypeName())}</span>
         <span className="name">{g.name}</span>
         <span className="grow" />
-        {g.hasRandomness() && <span className="badge" title="Uses a random seed">rnd</span>}
+        {g.hasRandomness() && <span className="badge" title={t("Uses a random seed")}>{t("rnd")}</span>}
         {g instanceof GenGraph && !isMaterial && (
-          <span className="badge" title="Double click to open">
-            graph
+          <span className="badge" title={t("Double click to open")}>
+            {t("graph")}
           </span>
         )}
       </div>
@@ -118,7 +118,7 @@ function MMNodeInner({ id, data, selected }: NodeProps & { data: NodeData }) {
       )}
       {showPreview && <PreviewCanvas gen={g} output={previewOutput} size={128} display={110} className="preview" onError={onError} />}
       {error && <div className="err">{error}</div>}
-      {isMaterial && <div className="err" style={{ color: "var(--text3)" }}>Material output — see the 3D view</div>}
+      {isMaterial && <div className="err" style={{ color: "var(--text3)" }}>{t("Material output — see the 3D view")}</div>}
     </div>
   );
 }

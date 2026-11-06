@@ -57,7 +57,7 @@ export function setCatalog(code: string, cat: Record<string, string>): void {
 }
 
 /** translates an English string; `{0}`, `{1}`… are replaced by the arguments */
-export function t(s: string, ...args: (string | number)[]): string {
+export function t(s: string, ...args: unknown[]): string {
   let out = (s && catalog[s]) || s;
   if (out === s && s && lang !== "en") {
     // the catalogs often hold a string without its trailing punctuation

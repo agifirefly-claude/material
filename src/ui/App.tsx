@@ -125,7 +125,7 @@ export function App() {
   return (
     <div className="app">
       <div className="topbar">
-        <span className="brand">Material Pro</span>
+        <span className="brand">{t("Material Pro")}</span>
         <Menu label={t("File")}>
           {(close) => (
             <>
@@ -139,9 +139,9 @@ export function App() {
                   </button>
                 ))}
               <hr />
-              <button onClick={() => (close(), openProjectFile())}>{t("Open…")} (.ptex)</button>
+              <button onClick={() => (close(), openProjectFile())}>{t("Open…")}{" "}{t("(.ptex)")}</button>
               <button onClick={() => (close(), setExamples(true))}>{t("Examples…")}</button>
-              <button onClick={() => (close(), saveProject())}>{t("Save")} (.ptex)</button>
+              <button onClick={() => (close(), saveProject())}>{t("Save")}{" "}{t("(.ptex)")}</button>
               <hr />
               <button onClick={() => (close(), setExporting(true))}>{t("Export for a game engine…")}</button>
               <button onClick={() => (close(), exportMaterialMaps())}>{t("Export material maps (zip)")}</button>
@@ -160,20 +160,20 @@ export function App() {
           {(close) => (
             <>
               <button disabled={!editor.canUndo} onClick={() => (close(), editor.undo())}>
-                {t("Undo")} (Ctrl+Z)
+                {t("Undo")}{" "}{t("(Ctrl+Z)")}
               </button>
               <button disabled={!editor.canRedo} onClick={() => (close(), editor.redo())}>
-                {t("Redo")} (Ctrl+Shift+Z)
+                {t("Redo")}{" "}{t("(Ctrl+Shift+Z)")}
               </button>
               <hr />
               <button disabled={editor.selection.length === 0} onClick={() => (close(), groupSelection())}>
-                {t("Group into subgraph")} (Ctrl+G)
+                {t("Group into subgraph")}{" "}{t("(Ctrl+G)")}
               </button>
-              <button onClick={() => (close(), graphActions.selectAll())}>{t("Select all")} (Ctrl+A)</button>
-              <button onClick={() => (close(), graphActions.selectInvert())}>{t("Invert selection")} (Ctrl+I)</button>
-              <button onClick={() => (close(), window.dispatchEvent(new Event("mm-find-node")))}>{t("Find a node…")} (Ctrl+F)</button>
+              <button onClick={() => (close(), graphActions.selectAll())}>{t("Select all")}{" "}{t("(Ctrl+A)")}</button>
+              <button onClick={() => (close(), graphActions.selectInvert())}>{t("Invert selection")}{" "}{t("(Ctrl+I)")}</button>
+              <button onClick={() => (close(), window.dispatchEvent(new Event("mm-find-node")))}>{t("Find a node…")}{" "}{t("(Ctrl+F)")}</button>
               <button disabled={!editor.selected} onClick={() => (close(), openDialog("edit-node", editor.selected))}>
-                {t("Edit node…")} (Ctrl+E)
+                {t("Edit node…")}{" "}{t("(Ctrl+E)")}
               </button>
               <button disabled={!editor.selected} onClick={() => (close(), openDialog("add-to-library", editor.selected))}>
                 {t("Add selection to a library…")}
@@ -249,7 +249,7 @@ export function App() {
               {t("2D node output")}
             </button>
             <button className={view === "ref" ? "on" : ""} onClick={() => setView("ref")}>
-              Reference
+              {t("Reference")}
             </button>
           </div>
           <div style={{ height: layout.previewHeight + "%", display: "flex", minHeight: 200 }}>

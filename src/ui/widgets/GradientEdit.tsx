@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Gradient, Interpolation } from "../../engine/params/types";
 import { ColorPopover, css } from "./ColorEdit";
 import { gradientDrop } from "./dnd";
+import { t } from "../i18n";
 
 /** The gradient as CSS, sampled so every interpolation mode looks right */
 export function gradientCss(g: Gradient): string {
@@ -23,7 +24,7 @@ export function GradientEdit({ value, onChange, compact }: { value: Gradient; on
     const r = bar.current!.getBoundingClientRect();
     return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
   };
-  if (compact) return <div className="grad-bar" style={{ background: gradientCss(value), cursor: "default" }} title="Gradient (edit in the inspector)" {...gradientDrop(onChange)} />;
+  if (compact) return <div className="grad-bar" style={{ background: gradientCss(value), cursor: "default" }} title={t("Gradient (edit in the inspector)")} {...gradientDrop(onChange)} />;
   const sorted = value.points;
   return (
     <div className="nodrag" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -33,7 +34,7 @@ export function GradientEdit({ value, onChange, compact }: { value: Gradient; on
           className="grad-bar"
           {...gradientDrop(onChange)}
           style={{ background: gradientCss(value) }}
-          title="Double click to add a point"
+          title={t("Double click to add a point")}
           onDoubleClick={(e) => {
             const x = posOf(e);
             update((g) => {
@@ -70,22 +71,22 @@ export function GradientEdit({ value, onChange, compact }: { value: Gradient; on
       </div>
       <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
         <select value={value.interpolation} onChange={(e) => update((g) => (g.interpolation = +e.target.value as Interpolation))}>
-          <option value={0}>Constant</option>
-          <option value={1}>Linear</option>
-          <option value={2}>Smooth</option>
-          <option value={3}>Cubic</option>
+          <option value={0}>{t("Constant")}</option>
+          <option value={1}>{t("Linear")}</option>
+          <option value={2}>{t("Smooth")}</option>
+          <option value={3}>{t("Cubic")}</option>
         </select>
         <button onClick={(e) => setPicker(e.currentTarget.getBoundingClientRect())} disabled={!sorted[sel]}>
-          Color…
+          {t("Color…")}
         </button>
         <button disabled={sorted.length <= 1 || !sorted[sel]} onClick={() => {
             update((g) => void g.points.splice(sel, 1));
             setSel(0);
           }}>
-          Remove
+          {t("Remove")}
         </button>
-        <button onClick={() => update((g) => g.points.forEach((p) => void (p.v = 1 - p.v)))}>Reverse</button>
-        <button onClick={() => update((g) => g.points.sort((a, b) => a.v - b.v).forEach((p, i, a) => (p.v = a.length > 1 ? i / (a.length - 1) : 0)))}>Even</button>
+        <button onClick={() => update((g) => g.points.forEach((p) => void (p.v = 1 - p.v)))}>{t("Reverse")}</button>
+        <button onClick={() => update((g) => g.points.sort((a, b) => a.v - b.v).forEach((p, i, a) => (p.v = a.length > 1 ? i / (a.length - 1) : 0)))}>{t("Even")}</button>
       </div>
       {picker && sorted[sel] && (
         <ColorPopover

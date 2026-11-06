@@ -11,6 +11,7 @@ import { Gizmos } from "./preview2d/Gizmos";
 import { canvasBlob, canvasOf, exportImage, IMAGE_TYPES, interpretFileName, renderImage, type ImageType } from "./preview2d/exports";
 import { openExportDialog } from "./preview2d/Dialogs";
 import { references } from "./Reference";
+import { t } from "./i18n";
 
 interface Settings {
   view: View;
@@ -128,60 +129,60 @@ export function Preview2D() {
   return (
     <div className="preview-pane" style={{ flex: 1 }}>
       <div className="tools">
-        <button title="Reset the view" onClick={() => setView({ center: { x: 0.5, y: 0.5 }, scale: 1.2 })}>
+        <button title={t("Reset the view")} onClick={() => setView({ center: { x: 0.5, y: 0.5 }, scale: 1.2 })}>
           ⟲
         </button>
         <div className="menu">
-          <button onClick={() => setMenu(menu === "view" ? null : "view")}>View ▾</button>
+          <button onClick={() => setMenu(menu === "view" ? null : "view")}>{t("View ▾")}</button>
           {menu === "view" && (
             <div className="menu-list pv2-menu" onMouseLeave={() => setMenu(null)}>
               <div className="dlg-grid">
-                <label>View</label>
+                <label>{t("View")}</label>
                 <select value={view.mode} onChange={(e) => setView({ mode: +e.target.value })}>
                   {VIEW_MODES.map((m, i) => (
                     <option key={m} value={i}>
-                      {m}
+                      {t(m)}
                     </option>
                   ))}
                 </select>
-                <label>Filter</label>
+                <label>{t("Filter")}</label>
                 <select value={view.filter} onChange={(e) => setView({ filter: +e.target.value })}>
                   {POSTPROCESS.map((n, i) => (
                     <option key={n} value={i}>
-                      {n ? `Lowres ${n}×${n}` : "None"}
+                      {n ? t("Lowres {0}×{1}", n, n) : t("None")}
                     </option>
                   ))}
                 </select>
-                <label>Guides</label>
+                <label>{t("Guides")}</label>
                 <div style={{ display: "flex", gap: 4 }}>
                   <select value={st.guides} onChange={(e) => set({ guides: +e.target.value })}>
                     {GUIDES.map((m, i) => (
                       <option key={m} value={i}>
-                        {m}
+                        {t(m)}
                       </option>
                     ))}
                   </select>
-                  {st.guides === 3 && <input type="number" min={1} max={64} value={st.gridSize} onChange={(e) => set({ gridSize: Math.max(1, +e.target.value) })} style={{ width: 52 }} title="Grid size" />}
-                  <input type="color" value={st.guideColor} onChange={(e) => set({ guideColor: e.target.value })} title="Guides colour" style={{ width: 28, padding: 0 }} />
+                  {st.guides === 3 && <input type="number" min={1} max={64} value={st.gridSize} onChange={(e) => set({ gridSize: Math.max(1, +e.target.value) })} style={{ width: 52 }} title={t("Grid size")} />}
+                  <input type="color" value={st.guideColor} onChange={(e) => set({ guideColor: e.target.value })} title={t("Guides colour")} style={{ width: 28, padding: 0 }} />
                 </div>
-                <label>Alpha</label>
+                <label>{t("Alpha")}</label>
                 <div style={{ display: "flex", gap: 4 }}>
-                  <select value={view.checkerBrightness} onChange={(e) => setView({ checkerBrightness: +e.target.value })} title="Transparency checkers brightness">
+                  <select value={view.checkerBrightness} onChange={(e) => setView({ checkerBrightness: +e.target.value })} title={t("Transparency checkers brightness")}>
                     {["Light", "Mid-tones", "Dark"].slice(0, CHECKER_BRIGHTNESS.length).map((m, i) => (
                       <option key={m} value={i}>
-                        {m}
+                        {t(m)}
                       </option>
                     ))}
                   </select>
-                  <select value={view.checkerSize} onChange={(e) => setView({ checkerSize: +e.target.value })} title="Transparency checkers size">
+                  <select value={view.checkerSize} onChange={(e) => setView({ checkerSize: +e.target.value })} title={t("Transparency checkers size")}>
                     {CHECKER_SIZES.map((n, i) => (
                       <option key={n} value={i}>
-                        {["Small", "Medium", "Large"][i]}
+                        {t(["Small", "Medium", "Large"][i])}
                       </option>
                     ))}
                   </select>
                 </div>
-                <label>Controls</label>
+                <label>{t("Controls")}</label>
                 <input type="checkbox" checked={st.controls} onChange={(e) => set({ controls: e.target.checked })} style={{ justifySelf: "start" }} />
               </div>
             </div>
@@ -189,14 +190,14 @@ export function Preview2D() {
         </div>
         <div className="menu">
           <button disabled={!g || !outs.length} onClick={() => setMenu(menu === "export" ? null : "export")}>
-            Export ▾
+            {t("Export ▾")}
           </button>
           {menu === "export" && g && (
             <div className="menu-list pv2-menu" style={{ width: 290 }}>
               <div className="dlg-grid">
-                <label>File</label>
+                <label>{t("File")}</label>
                 <div style={{ display: "flex", gap: 4 }}>
-                  <input type="text" value={st.exportName} onChange={(e) => set({ exportName: e.target.value })} title="$node, $output, $resolution and $project can be used" style={{ flex: 1 }} />
+                  <input type="text" value={st.exportName} onChange={(e) => set({ exportName: e.target.value })} title={t("$node, $output, $resolution and $project can be used")} style={{ flex: 1 }} />
                   <select value={st.exportType} onChange={(e) => set({ exportType: e.target.value as ImageType })}>
                     {Object.keys(IMAGE_TYPES).map((t) => (
                       <option key={t}>{t}</option>
@@ -207,7 +208,7 @@ export function Preview2D() {
                 <span style={{ color: "var(--text3)" }}>
                   {exportName}.{st.exportType}
                 </span>
-                <label>Resolution</label>
+                <label>{t("Resolution")}</label>
                 <select value={st.exportSize} onChange={(e) => set({ exportSize: +e.target.value })}>
                   {[256, 512, 1024, 2048, 4096].map((s) => (
                     <option key={s} value={s}>
@@ -217,19 +218,19 @@ export function Preview2D() {
                 </select>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginTop: 6 }}>
-                <button onClick={() => (setMenu(null), exportImage(editor.renderer!, g, o, st.exportSize, st.exportType, exportName))}>Image</button>
+                <button onClick={() => (setMenu(null), exportImage(editor.renderer!, g, o, st.exportSize, st.exportType, exportName))}>{t("Image")}</button>
                 <button
                   onClick={async () => {
                     setMenu(null);
                     const blob = await canvasBlob(canvasOf(renderImage(editor.renderer!, g, o, st.exportSize)));
                     references.add(URL.createObjectURL(blob), exportName);
-                    editor.setStatus("Exported to Reference");
+                    editor.setStatus(t("Exported to Reference"));
                   }}
                 >
-                  To Reference
+                  {t("To Reference")}
                 </button>
-                <button onClick={() => (setMenu(null), openExportDialog({ kind: "animation", gen: g, output: o }))}>Animation…</button>
-                <button onClick={() => (setMenu(null), openExportDialog({ kind: "taa", gen: g, output: o }))}>TAA Render…</button>
+                <button onClick={() => (setMenu(null), openExportDialog({ kind: "animation", gen: g, output: o }))}>{t("Animation…")}</button>
+                <button onClick={() => (setMenu(null), openExportDialog({ kind: "taa", gen: g, output: o }))}>{t("TAA Render…")}</button>
               </div>
             </div>
           )}
@@ -244,7 +245,7 @@ export function Preview2D() {
           </select>
         )}
         <span className="grow" />
-        <button className={locked ? "primary" : ""} disabled={!g} title={locked ? "Unlock: show the selected node" : "Lock this preview on this node"} onClick={() => setLocked(locked ? null : (g ?? null))}>
+        <button className={locked ? "primary" : ""} disabled={!g} title={locked ? t("Unlock: show the selected node") : t("Lock this preview on this node")} onClick={() => setLocked(locked ? null : (g ?? null))}>
           {locked ? "🔒" : "🔓"}
         </button>
       </div>
@@ -254,7 +255,7 @@ export function Preview2D() {
         onWheel={(e) => g && zoomAt(e.clientX, e.clientY, view.scale * (e.deltaY > 0 ? 1.05 : 0.95))}
         onPointerDown={onPointerDown}
         onAuxClick={(e) => e.preventDefault()}
-        title="Middle button or shift+drag: pan · wheel or ctrl+drag: zoom"
+        title={t("Middle button or shift+drag: pan · wheel or ctrl+drag: zoom")}
       >
         {g && outs.length > 0 ? (
           <div className="pv2-stage" style={{ width: box, height: box }}>
@@ -263,7 +264,7 @@ export function Preview2D() {
             {!st.controls && st.guides > 0 && <Gizmos gen={{ getParameterDefs: () => [] } as unknown as Gen} view={view} size={box} guides={st.guides} gridSize={st.gridSize} guideColor={st.guideColor} />}
           </div>
         ) : (
-          <div className="empty">{g ? "This node has no output to preview" : "Select a node to preview it"}</div>
+          <div className="empty">{g ? t("This node has no output to preview") : t("Select a node to preview it")}</div>
         )}
         {error && <div className="empty" style={{ position: "absolute", inset: "auto 0 0 0", background: "#000a", color: "var(--danger)" }}>{error}</div>}
       </div>

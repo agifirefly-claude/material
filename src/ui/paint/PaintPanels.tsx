@@ -7,6 +7,7 @@ import { ParamControl, paramLabel } from "../widgets/ParamControl";
 import { FloatEdit } from "../widgets/FloatEdit";
 import { CHANNELS, LAYER_MASK, LAYER_PAINT, LAYER_PROC, findParentArray, type Layer, type MapChannel } from "../../engine/paint/layers";
 import { editor } from "../store";
+import { t } from "../i18n";
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -29,26 +30,26 @@ export function ToolsPanel() {
     <div className="insp">
       <div className="paint-tools">
         {TOOL_LABELS.map((l, i) => (
-          <button key={l} className={paint.tool === i ? "primary" : ""} onClick={() => ((paint.tool = i), paint.emit())} title={l}>
-            {l}
+          <button key={l} className={paint.tool === i ? "primary" : ""} onClick={() => ((paint.tool = i), paint.emit())} title={t(l)}>
+            {t(l)}
           </button>
         ))}
       </div>
       <div className="paint-tools">
-        <button className={paint.eraser ? "primary" : ""} onClick={() => ((paint.eraser = !paint.eraser), paint.emit())} title="Erase instead of painting">
-          Eraser
+        <button className={paint.eraser ? "primary" : ""} onClick={() => ((paint.eraser = !paint.eraser), paint.emit())} title={t("Erase instead of painting")}>
+          {t("Eraser")}
         </button>
-        <button disabled={!p.selected || p.selected.type === LAYER_PROC} onClick={() => p.fill(paint.eraser)} title="Fill the whole layer with the brush">
-          Fill
+        <button disabled={!p.selected || p.selected.type === LAYER_PROC} onClick={() => p.fill(paint.eraser)} title={t("Fill the whole layer with the brush")}>
+          {t("Fill")}
         </button>
-        <button className={paint.textureEngine ? "primary" : ""} onClick={() => ((paint.textureEngine = !paint.textureEngine), paint.emit())} title="Paint engine: in view space, or in texture space through the view">
-          {paint.textureEngine ? "Texture space" : "View space"}
+        <button className={paint.textureEngine ? "primary" : ""} onClick={() => ((paint.textureEngine = !paint.textureEngine), paint.emit())} title={t("Paint engine: in view space, or in texture space through the view")}>
+          {paint.textureEngine ? t("Texture space") : t("View space")}
         </button>
-        <button disabled={!p.canUndo()} onClick={() => p.undo()} title="Undo the last stroke on this layer (Ctrl+Z)">
-          Undo
+        <button disabled={!p.canUndo()} onClick={() => p.undo()} title={t("Undo the last stroke on this layer (Ctrl+Z)")}>
+          {t("Undo")}
         </button>
-        <button disabled={!p.canRedo()} onClick={() => p.redo()} title="Redo (Ctrl+Shift+Z)">
-          Redo
+        <button disabled={!p.canRedo()} onClick={() => p.redo()} title={t("Redo (Ctrl+Shift+Z)")}>
+          {t("Redo")}
         </button>
       </div>
       {paint.tool === 5 && (
@@ -62,45 +63,45 @@ export function ToolsPanel() {
               paint.emit();
             }}
           >
-            {p.idMap ? "Replace ID map…" : "Load ID map…"}
+            {p.idMap ? t("Replace ID map…") : t("Load ID map…")}
           </button>
           {p.painter.idMask && (
             <button onClick={() => ((p.painter.idMask = null), paint.emit())}>
-              Clear ID mask <span className="dot" style={{ background: `rgb(${p.painter.idMask.slice(0, 3).map((x) => x * 255).join(",")})` }} />
+              {t("Clear ID mask")}{" "}<span className="dot" style={{ background: `rgb(${p.painter.idMask.slice(0, 3).map((x) => x * 255).join(",")})` }} />
             </button>
           )}
         </div>
       )}
-      <div className="sect">Brush</div>
-      <Row label="Size">
+      <div className="sect">{t("Brush")}</div>
+      <Row label={t("Size")}>
         <FloatEdit value={prm.brush_size} min={0} max={250} step={1} allowExpr={false} onChange={(v) => set("brush_size", v)} />
       </Row>
-      <Row label="Hardness">
+      <Row label={t("Hardness")}>
         <FloatEdit value={prm.brush_hardness} min={0} max={1} step={0.01} allowExpr={false} onChange={(v) => set("brush_hardness", v)} />
       </Row>
-      <Row label="Opacity">
+      <Row label={t("Opacity")}>
         <FloatEdit value={prm.brush_opacity} min={0} max={1} step={0.01} allowExpr={false} onChange={(v) => set("brush_opacity", v)} />
       </Row>
-      <Row label="Spacing">
+      <Row label={t("Spacing")}>
         <FloatEdit value={paint.spacing} min={1} max={250} step={1} allowExpr={false} onChange={(v) => ((paint.spacing = Number(v)), paint.emit())} />
       </Row>
-      <Row label="Angle">
+      <Row label={t("Angle")}>
         <FloatEdit value={(prm.pattern_angle * 180) / Math.PI} min={-180} max={180} step={1} allowExpr={false} onChange={(v) => set("pattern_angle", (Number(v) * Math.PI) / 180)} />
       </Row>
-      <Row label="Pattern scale">
+      <Row label={t("Pattern scale")}>
         <FloatEdit value={prm.pattern_scale} min={0.1} max={25} step={0.1} allowExpr={false} onChange={(v) => set("pattern_scale", v)} />
       </Row>
-      <Row label="Pen pressure">
+      <Row label={t("Pen pressure")}>
         <div style={{ display: "flex", gap: 8 }}>
           {(["size", "opacity", "hardness"] as const).map((k) => (
             <label key={k} style={{ display: "flex", gap: 3 }}>
-              <input type="checkbox" checked={paint.pressure[k]} onChange={(e) => ((paint.pressure[k] = e.target.checked), paint.emit())} /> {k}
+              <input type="checkbox" checked={paint.pressure[k]} onChange={(e) => ((paint.pressure[k] = e.target.checked), paint.emit())} /> {t(k)}
             </label>
           ))}
         </div>
       </Row>
       <details>
-        <summary>Jitter</summary>
+        <summary>{t("Jitter")}</summary>
         {(["jitter_position", "jitter_size", "jitter_angle", "jitter_opacity"] as const).map((k) => (
           <Row key={k} label={k.slice(7)}>
             <FloatEdit value={prm[k]} min={0} max={k === "jitter_position" ? 250 : 1} step={k === "jitter_position" ? 1 : 0.01} allowExpr={false} onChange={(v) => set(k, v)} />
@@ -120,9 +121,9 @@ function BrushParams() {
   const err = p.painter.checkBrush();
   return (
     <>
-      <div className="sect">Brush parameters · {p.painter.brushMode}</div>
+      <div className="sect">{t("Brush parameters ·")}{" "}{t(p.painter.brushMode)}</div>
       {err && <div className="err">{err}</div>}
-      {!r && <div style={{ color: "var(--text3)" }}>This brush has no parameters panel. Edit its graph below.</div>}
+      {!r && <div style={{ color: "var(--text3)" }}>{t("This brush has no parameters panel. Edit its graph below.")}</div>}
       {r?.getParameterDefs().map((d) => (
         <div key={d.name} className="row" style={["gradient", "curve", "polygon"].includes(d.type) ? { gridTemplateColumns: "1fr" } : undefined}>
           <label title={d.longdesc ?? d.name}>{paramLabel(d)}</label>
@@ -140,25 +141,25 @@ export function BrushesPanel() {
   return (
     <>
       <h3>
-        Brushes <span className="grow" />
+        {t("Brushes")}{" "}<span className="grow" />
         <button
-          title="Add the current brush to the brush library (Tools > Add current brush to library)"
+          title={t("Add the current brush to the brush library (Tools > Add current brush to library)")}
           onClick={() => {
-            const n = prompt("Brush name");
+            const n = prompt(t("Brush name"));
             if (n) paint.addBrushToLibrary(n);
           }}
         >
-          + Save brush
+          {t("+ Save brush")}
         </button>
       </h3>
       <div className="lib-search">
-        <input type="search" placeholder="Search brushes" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input type="search" placeholder={t("Search brushes")} value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
       <div className="scroll tree brush-grid">
         {list.map((b) => (
           <button key={b.tree_item} className="brush-item" title={b.tree_item + (b.longdesc ? "\n" + b.longdesc : "")} onClick={() => paint.setBrush(b)}>
             {b.icon_data ? <img src={"data:image/png;base64," + b.icon_data} alt="" /> : <span className="brush-noicon" />}
-            <span>{b.tree_item.split("/").pop()}</span>
+            <span>{t(b.tree_item.split("/").pop() ?? "")}</span>
           </button>
         ))}
       </div>
@@ -201,19 +202,19 @@ export function LayersPanel() {
           }}
           onClick={() => p.selectLayer(l)}
           onDoubleClick={() => {
-            const n = prompt("Layer name", l.name);
+            const n = prompt(t("Layer name"), l.name);
             if (n) {
               l.name = n;
               p.changed();
             }
           }}
-          title={TYPE_NAME[l.type]}
+          title={t(TYPE_NAME[l.type])}
         >
-          <button className="eye" onClick={(e) => (e.stopPropagation(), p.setLayerHidden(l, !l.hidden))} title={l.hidden ? "Show" : "Hide"}>
+          <button className="eye" onClick={(e) => (e.stopPropagation(), p.setLayerHidden(l, !l.hidden))} title={l.hidden ? t("Show") : t("Hide")}>
             {l.hidden ? "◌" : "●"}
           </button>
           <span>{TYPE_ICON[l.type]}</span>
-          <span className="grow">{l.name}</span>
+          <span className="grow">{t(l.name)}</span>
         </div>,
       );
       walk(l.layers, depth + 1);
@@ -223,29 +224,29 @@ export function LayersPanel() {
   return (
     <>
       <h3>
-        Layers <span className="grow" />
-        <button title="Add a paint layer" onClick={() => p.addLayer(LAYER_PAINT)}>
-          + Paint
+        {t("Layers")}{" "}<span className="grow" />
+        <button title={t("Add a paint layer")} onClick={() => p.addLayer(LAYER_PAINT)}>
+          {t("+ Paint")}
         </button>
-        <button title="Add a procedural layer: filled by the brush graph" onClick={() => p.addLayer(LAYER_PROC)}>
-          + Proc
+        <button title={t("Add a procedural layer: filled by the brush graph")} onClick={() => p.addLayer(LAYER_PROC)}>
+          {t("+ Proc")}
         </button>
-        <button title="Add a mask to the selected layer" disabled={!sel} onClick={() => p.addLayer(LAYER_MASK)}>
-          + Mask
+        <button title={t("Add a mask to the selected layer")} disabled={!sel} onClick={() => p.addLayer(LAYER_MASK)}>
+          {t("+ Mask")}
         </button>
       </h3>
       <div className="layers">{rows}</div>
       {sel && (
         <div className="insp">
           <div className="paint-tools">
-            <button onClick={() => p.moveLayerUp(sel)}>Up</button>
-            <button onClick={() => p.moveLayerDown(sel)}>Down</button>
-            <button onClick={() => p.duplicateLayer(sel)}>Duplicate</button>
-            <button onClick={() => p.removeLayer(sel)}>Remove</button>
+            <button onClick={() => p.moveLayerUp(sel)}>{t("Up")}</button>
+            <button onClick={() => p.moveLayerDown(sel)}>{t("Down")}</button>
+            <button onClick={() => p.duplicateLayer(sel)}>{t("Duplicate")}</button>
+            <button onClick={() => p.removeLayer(sel)}>{t("Remove")}</button>
           </div>
           {sel.type !== LAYER_MASK && (
             <>
-              <div className="sect">Opacity of “{sel.name}” per channel</div>
+              <div className="sect">{t("Opacity of “{0}” per channel", sel.name)}</div>
               {CHANNELS.map((c: MapChannel) => (
                 <Row key={c} label={c}>
                   <FloatEdit value={sel.alpha[c]} min={0} max={1} step={0.01} allowExpr={false} onChange={(v) => p.setLayerAlpha(sel, c, Number(v))} />
@@ -253,7 +254,7 @@ export function LayersPanel() {
               ))}
             </>
           )}
-          {sel.type === LAYER_PROC && <div style={{ color: "var(--text3)" }}>A procedural layer is filled by its brush: edit the brush graph to change it.</div>}
+          {sel.type === LAYER_PROC && <div style={{ color: "var(--text3)" }}>{t("A procedural layer is filled by its brush: edit the brush graph to change it.")}</div>}
         </div>
       )}
     </>
@@ -274,8 +275,8 @@ export function SettingsPanel() {
   const s = p.settings;
   return (
     <div className="insp">
-      <div className="sect">Project settings</div>
-      <Row label="Texture size">
+      <div className="sect">{t("Project settings")}</div>
+      <Row label={t("Texture size")}>
         <select value={s.texture_size} onChange={(e) => p.setSettings({ texture_size: +e.target.value })}>
           {[8, 9, 10, 11, 12].map((i) => (
             <option key={i} value={i}>
@@ -289,11 +290,11 @@ export function SettingsPanel() {
           <input type="checkbox" checked={s[k]} onChange={(e) => p.setSettings({ [k]: e.target.checked })} style={{ justifySelf: "start" }} />
         </Row>
       ))}
-      <Row label="bump strength">
+      <Row label={t("bump strength")}>
         <FloatEdit value={s.bump_strength} min={0} max={1} step={0.01} allowExpr={false} onChange={(v) => p.setSettings({ bump_strength: Number(v) })} />
       </Row>
       <div style={{ color: "var(--text3)" }}>
-        Model: {p.mesh.name} · {p.mesh.positions.length / 9} triangles · {editor.title === "Brush" ? "the node editor shows the brush graph" : ""}
+        {t("Model:")}{" "}{p.mesh.name} · {p.mesh.positions.length / 9}{" "}{t("triangles ·")}{" "}{editor.title === "Brush" ? t("the node editor shows the brush graph") : ""}
       </div>
     </div>
   );

@@ -68,7 +68,7 @@ function TreeItem({ f, open, toggle, onMenu }: { f: Folder; open: Set<string>; t
         <span className="caret">{hasChildren ? (isOpen ? "▾" : "▸") : ""}</span>
         {f.item?.icon_data && <img src={"data:image/png;base64," + f.item.icon_data} alt="" />}
         <span>{t(f.name)}</span>
-        {f.item && f.item.library !== "base" && <span className="lib-badge">{libraries.library(f.item.library)?.name}</span>}
+        {f.item && f.item.library !== "base" && <span className="lib-badge">{t(libraries.library(f.item.library)?.name ?? "")}</span>}
       </div>
       {hasChildren && isOpen && (
         <div className="tree-children">
@@ -91,7 +91,7 @@ function ItemContextMenu({ m, onClose }: { m: ItemMenu; onClose: () => void }) {
   return (
     <div className="menu-list" style={{ position: "fixed", left: m.x, top: m.y }} onMouseLeave={onClose}>
       <div className="label">
-        {tPath(m.item.tree_item)} · {lib?.name}
+        {tPath(m.item.tree_item)} · {t(lib?.name ?? "")}
       </div>
       <button onClick={run(() => addNode(m.item))}>{t("Add to the graph")}</button>
       {editable && (

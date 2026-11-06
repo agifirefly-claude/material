@@ -12,6 +12,7 @@ import { PostProcessor } from "./preview3d/postprocess";
 import { CameraMenu, EnvironmentMenu, ModelMenu, PostProcessMenu } from "./preview3d/Menus";
 import { setCurrentMesh } from "../engine/paint/mesh";
 import { geometryToPaintMesh } from "./paint/meshes";
+import { t as tr } from "./i18n";
 
 const MAP_KEYS = ["albedo", "orm", "emission", "normal", "depth"] as const;
 /** model_menu.gd rotation speeds, in radians per second */
@@ -189,7 +190,7 @@ export function Preview3D({ active }: { active: boolean }) {
         p = loadModel(obj.url);
         models.current.set(obj.url, p);
       }
-      p.then((g) => use(g, false)).catch((e) => editor.setStatus("Cannot load the model: " + e));
+      p.then((g) => use(g, false)).catch((e) => editor.setStatus(tr("Cannot load the model: {0}", e)));
     } else use(buildGeometry(obj.key, os.params, os.tessellated), true);
     return () => {
       live = false;
@@ -238,7 +239,7 @@ export function Preview3D({ active }: { active: boolean }) {
         setCustom(await loadModel(f));
         updateSettings({ object: "custom" });
       } catch (err) {
-        editor.setStatus("Cannot load the model: " + err);
+        editor.setStatus(tr("Cannot load the model: {0}", err));
       }
     };
     input.click();
@@ -253,9 +254,9 @@ export function Preview3D({ active }: { active: boolean }) {
     if (!t || !r) return;
     const timer = setTimeout(() => {
       const m = findMaterial(editor.root);
-      if (!m) return setNote("This project has no material node.");
+      if (!m) return setNote(tr("This project has no material node."));
       const spec = previewMaps(m);
-      if (!spec) return setNote(`“${m.getTypeName()}” is evaluated in 3D space, which this preview does not do yet. Its exports work.`);
+      if (!spec) return setNote(tr("“{0}” is evaluated in 3D space, which this preview does not do yet. Its exports work.", m.getTypeName()));
       setNote("");
       const size = Math.min(res, m.imageSize);
       r.time = performance.now() / 1000;
@@ -339,15 +340,15 @@ export function Preview3D({ active }: { active: boolean }) {
         <EnvironmentMenu />
         <PostProcessMenu />
         <CameraMenu onReset={resetCamera} />
-        <select value={res} onChange={(e) => setRes(+e.target.value)} title="Texture resolution of the preview">
+        <select value={res} onChange={(e) => setRes(+e.target.value)} title={tr("Texture resolution of the preview")}>
           {[256, 512, 1024, 2048].map((s) => (
             <option key={s} value={s}>
-              {s}px
+              {s}{tr("px")}
             </option>
           ))}
         </select>
-        <label title="Use the depth map as displacement (turn on the model's tessellation for detail)">
-          <input type="checkbox" checked={displace} onChange={(e) => setDisplace(e.target.checked)} /> depth
+        <label title={tr("Use the depth map as displacement (turn on the model's tessellation for detail)")}>
+          <input type="checkbox" checked={displace} onChange={(e) => setDisplace(e.target.checked)} />{" "}{tr("depth")}
         </label>
       </div>
       <div className="body" ref={host}>

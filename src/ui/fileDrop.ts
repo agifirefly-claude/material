@@ -4,6 +4,7 @@ import { editor } from "./store";
 import { parseProject } from "./exporting";
 import { createGen } from "../engine/loader";
 import { GenImage } from "../engine/gen/texture";
+import { t } from "./i18n";
 
 const IMAGE = /\.(bmp|jpe?g|png|svg|webp|gif|avif)$/i;
 const PROJECT = /\.(ptex|json)$/i;
@@ -30,7 +31,7 @@ export async function dropFiles(e: React.DragEvent, at: { x: number; y: number }
       if (PROJECT.test(f.name)) {
         const data = parseProject(await f.text());
         if (data.nodes) editor.open(data, f.name.replace(PROJECT, ""));
-        else editor.setStatus(`${f.name} is not a Material Maker project`);
+        else editor.setStatus(t("{0} is not a Material Maker project", f.name));
       } else if (IMAGE.test(f.name) || f.type.startsWith("image/")) {
         const url = await readDataUrl(f);
         if (target instanceof GenImage) target.setParameter("image", url);
@@ -42,9 +43,9 @@ export async function dropFiles(e: React.DragEvent, at: { x: number; y: number }
           editor.graph.addGenerator(g);
           editor.select([g.name]);
         }
-      } else editor.setStatus(`Cannot open ${f.name} here`);
+      } else editor.setStatus(t("Cannot open {0} here", f.name));
     } catch (err) {
-      editor.setStatus(`Cannot open ${f.name}: ${err}`);
+      editor.setStatus(t("Cannot open {0}: {1}", f.name, err));
     }
   }
 }

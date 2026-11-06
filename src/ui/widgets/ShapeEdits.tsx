@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Curve, Lattice, Pixels, Polygon, Splines, type Color } from "../../engine/params/types";
 import { ColorEdit, css } from "./ColorEdit";
+import { t } from "../i18n";
 
 const SIZE = 200;
 type Pt = { x: number; y: number };
@@ -110,7 +111,7 @@ export function CurveEdit({ value, onChange }: { value: Curve; onChange: (c: Cur
       width={SIZE}
       height={SIZE}
       className="curve-canvas nodrag"
-      title="Drag points; double click to add or remove a point"
+      title={t("Drag points; double click to add or remove a point")}
       {...drag}
       onDoubleClick={(e) => {
         const p = local(e, ref.current!);
@@ -156,7 +157,7 @@ export function PolygonEdit({ value, closed, onChange }: { value: Polygon; close
       width={SIZE}
       height={SIZE}
       className="poly-canvas nodrag"
-      title="Drag points; double click to add a point on the nearest edge or remove one"
+      title={t("Drag points; double click to add a point on the nearest edge or remove one")}
       {...drag}
       onDoubleClick={(e) => {
         const p = local(e, ref.current!);
@@ -235,10 +236,10 @@ export function LatticeEdit({ value, onChange }: { value: Lattice; onChange: (l:
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       <canvas ref={ref} width={SIZE} height={SIZE} className="poly-canvas nodrag" {...drag} />
       <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-        Size
+        {t("Size")}
         <input type="number" min={1} max={8} value={value.size.x} onChange={(e) => resize(Math.max(1, +e.target.value), value.size.y)} style={{ width: 48 }} />×
         <input type="number" min={1} max={8} value={value.size.y} onChange={(e) => resize(value.size.x, Math.max(1, +e.target.value))} style={{ width: 48 }} />
-        <button onClick={() => resize(value.size.x, value.size.y)}>Reset</button>
+        <button onClick={() => resize(value.size.x, value.size.y)}>{t("Reset")}</button>
       </div>
     </div>
   );
@@ -304,7 +305,7 @@ export function SplinesEdit({ value, onChange }: { value: Splines; onChange: (s:
             onChange(c);
           }}
         >
-          Add curve
+          {t("Add curve")}
         </button>
         <button
           disabled={!value.values.length}
@@ -316,10 +317,10 @@ export function SplinesEdit({ value, onChange }: { value: Splines; onChange: (s:
             onChange(c);
           }}
         >
-          Remove last
+          {t("Remove last")}
         </button>
         <label style={{ display: "flex", gap: 4, alignItems: "center" }}>
-          Width
+          {t("Width")}
           <input
             type="number"
             step={0.005}
@@ -401,7 +402,7 @@ export function PixelsEdit({ value, onChange }: { value: Pixels; onChange: (p: P
       <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
         <input type="number" min={1} max={64} value={value.size.x} style={{ width: 46 }} onChange={(e) => onChange(resizePixels(value, +e.target.value, value.size.y, value.bpp))} />×
         <input type="number" min={1} max={64} value={value.size.y} style={{ width: 46 }} onChange={(e) => onChange(resizePixels(value, value.size.x, +e.target.value, value.bpp))} />
-        bpp
+        {t("bpp")}
         <select value={value.bpp} onChange={(e) => onChange(resizePixels(value, value.size.x, value.size.y, +e.target.value))}>
           {[1, 2, 3, 4, 5].map((b) => (
             <option key={b}>{b}</option>

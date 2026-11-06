@@ -8,6 +8,7 @@ import { paint, usePaint } from "./paintStore";
 import { paintMeshToGeometry } from "./meshes";
 import type { PaintProject } from "../../engine/paint/project";
 import { isColor } from "../../engine/params/types";
+import { t } from "../i18n";
 
 const MAPS = ["albedo", "orm", "emission", "normal_gl", "depth"] as const;
 
@@ -317,7 +318,7 @@ export function PaintView() {
       const uv = p.painter.viewToTexture(pos[0], pos[1]);
       if (uv) {
         if (paint.tool === 5) {
-          if (!p.idMap) paint.setStatus("Load an ID map first (in the tool options)");
+          if (!p.idMap) paint.setStatus(t("Load an ID map first (in the tool options)"));
           else p.selectId(uv);
         } else applyPickedColors(p, p.pickColors(uv));
       }
@@ -354,7 +355,7 @@ export function PaintView() {
       style={{ cursor: paint.eraser ? "crosshair" : "default" }}
     >
       <canvas ref={overlay} className="paint-overlay" />
-      <div className="paint-hint">Left drag: paint · Right drag: turn · Middle drag: pan · Wheel: zoom · Shift+drag: size/hardness · Ctrl+drag: pattern</div>
+      <div className="paint-hint">{t("Left drag: paint · Right drag: turn · Middle drag: pan · Wheel: zoom · Shift+drag: size/hardness · Ctrl+drag: pattern")}</div>
     </div>
   );
 }

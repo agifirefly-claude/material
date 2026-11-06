@@ -7,6 +7,7 @@ import { GenContext } from "../engine/context";
 import type { Dict } from "../engine/gen/base";
 import { expressionShaderCode, planExport, processShader, processConditionals, connectionsAndParametersContext } from "../engine/export";
 import type { TextureRef } from "../engine/shader-code";
+import { t } from "./i18n";
 
 export function downloadBlob(blob: Blob, name: string) {
   const a = document.createElement("a");
@@ -87,9 +88,9 @@ export function openProjectFile() {
     try {
       const data = parseProject(await f.text());
       if (data.nodes) editor.open(data, f.name.replace(/\.(ptex|json|mmg)$/, ""));
-      else editor.setStatus("This file is not a Material Maker project");
+      else editor.setStatus(t("This file is not a Material Maker project"));
     } catch (e) {
-      editor.setStatus("Cannot open: " + e);
+      editor.setStatus(t("Cannot open: {0}", e));
     }
   };
   input.click();
@@ -104,10 +105,10 @@ export async function openExample(name: string) {
 export async function exportMaterialMaps(size?: number) {
   const r = editor.renderer!;
   const m = findMaterial(editor.root);
-  if (!m) return editor.setStatus("No material node to export");
-  if (!hasStandardMaps(m)) return editor.setStatus(`“${m.getTypeName()}” has no texture maps to export`);
+  if (!m) return editor.setStatus(t("No material node to export"));
+  if (!hasStandardMaps(m)) return editor.setStatus(t("“{0}” has no texture maps to export", m.getTypeName()));
   const s = size ?? m.imageSize;
-  editor.setStatus(`Exporting ${STANDARD_MAPS.length} maps at ${s}×${s}…`);
+  editor.setStatus(t("Exporting {0} maps at {1}×{2}…", STANDARD_MAPS.length, s, s));
   await new Promise((res) => setTimeout(res, 30));
   const files: Record<string, Uint8Array> = {};
   for (const map of STANDARD_MAPS) {
@@ -120,18 +121,18 @@ export async function exportMaterialMaps(size?: number) {
   }
   files[`${editor.title}.ptex`] = new TextEncoder().encode(projectText());
   downloadBlob(new Blob([zipSync(files, { level: 0 })], { type: "application/zip" }), `${editor.title}_maps.zip`);
-  editor.setStatus(`Exported ${Object.keys(files).length - 1} maps`);
+  editor.setStatus(t("Exported {0} maps", Object.keys(files).length - 1));
 }
 
 /** runs one of the material's export profiles (Godot, Unity, Unreal, Blender, glTF…) and downloads the files as a zip */
 export async function exportForEngine(profile: string, size?: number) {
   const r = editor.renderer!;
   const m = findMaterial(editor.root);
-  if (!m) return editor.setStatus("No material node to export");
+  if (!m) return editor.setStatus(t("No material node to export"));
   const s = size ?? m.imageSize;
   const prefix = editor.title || "material";
   const plan = planExport(m, profile, prefix);
-  editor.setStatus(`Exporting ${plan.length} files for ${profile}…`);
+  editor.setStatus(t("Exporting {0} files for {1}…", plan.length, profile));
   await new Promise((res) => setTimeout(res, 30));
   const files: Record<string, Uint8Array> = {};
   let buffersCode: ReturnType<typeof processShader> | null = null;
@@ -154,5 +155,5 @@ export async function exportForEngine(profile: string, size?: number) {
     }
   }
   downloadBlob(new Blob([zipSync(files, { level: 0 })], { type: "application/zip" }), `${prefix}_${profile.replaceAll("/", "_").replaceAll(" ", "_")}.zip`);
-  editor.setStatus(`Exported ${Object.keys(files).length} files for ${profile}`);
+  editor.setStatus(t("Exported {0} files for {1}", Object.keys(files).length, profile));
 }

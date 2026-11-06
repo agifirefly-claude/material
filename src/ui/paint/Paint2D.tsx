@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { paint, usePaint } from "./paintStore";
 import { StrokeState, paintAt, pressureOf, strokeMotion } from "./PaintView";
 import { GLSL_HEADER, Gpu } from "../../engine/paint/gpu";
+import { t } from "../i18n";
 
 const CHANNELS = [
   ["albedo", "Albedo"],
@@ -93,7 +94,7 @@ export function Paint2D() {
         <select value={channel} onChange={(e) => setChannel(e.target.value as typeof channel)}>
           {CHANNELS.map(([k, l]) => (
             <option key={k} value={k}>
-              {l}
+              {t(l)}
             </option>
           ))}
         </select>
@@ -105,9 +106,9 @@ export function Paint2D() {
             setTick((x) => x + 1);
           }}
         >
-          Fit
+          {t("Fit")}
         </button>
-        <span style={{ color: "var(--text3)" }}>paint in texture space · wheel zoom · middle drag pan</span>
+        <span style={{ color: "var(--text3)" }}>{t("paint in texture space · wheel zoom · middle drag pan")}</span>
       </div>
       <canvas
         ref={canvas}

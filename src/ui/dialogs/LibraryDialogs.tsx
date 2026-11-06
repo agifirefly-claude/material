@@ -62,7 +62,7 @@ export function AddToLibraryDialog({ payload, onClose }: { payload: Gen | { gen:
                 <select value={lib} onChange={(e) => setLib(e.target.value)}>
                   {writable.map((l) => (
                     <option key={l.id} value={l.id}>
-                      {l.name}
+                      {t(l.name)}
                     </option>
                   ))}
                 </select>
@@ -86,7 +86,7 @@ export function AddToLibraryDialog({ payload, onClose }: { payload: Gen | { gen:
               if (icon) libraries.updateIcon(lib, name, icon);
             } else {
               libraries.addItem(lib, name.trim().replace(/^\/+|\/+$/g, ""), selectionData(gens), icon);
-              editor.setStatus(t("Added “{0}” to {1}", name, libraries.library(lib)?.name ?? ""));
+              editor.setStatus(t("Added “{0}” to {1}", name, t(libraries.library(lib)?.name ?? "")));
             }
             onClose();
           }}

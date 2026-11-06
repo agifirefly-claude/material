@@ -9,6 +9,7 @@ import type { Dict } from "../../engine/gen/base";
 import type { LibraryItem } from "../../engine/registry";
 import { projectText, parseProject, downloadBlob } from "../exporting";
 import { geometryToPaintMesh, loadModelGeometry, normalizeGeometry } from "./meshes";
+import { t } from "../i18n";
 
 export const TOOLS = ["FreeDots", "FreeLine", "Line", "Stamp", "ColorPicker", "MaskSelector"] as const;
 export const TOOL_LABELS = ["Free dots", "Free line", "Line", "Stamp", "Colour picker", "ID mask"];
@@ -100,7 +101,7 @@ class PaintState {
   /** back to editing materials */
   close() {
     if (!this.project) return;
-    if (this.project.needSave && !confirm("The paint project has unsaved changes. Close it anyway?")) return;
+    if (this.project.needSave && !confirm(t("The paint project has unsaved changes. Close it anyway?"))) return;
     this.unwatchBrush?.();
     this.project.dispose();
     this.project = null;
