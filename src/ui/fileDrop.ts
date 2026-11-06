@@ -5,6 +5,7 @@ import { parseProject } from "./exporting";
 import { createGen } from "../engine/loader";
 import { GenImage } from "../engine/gen/texture";
 import { t } from "./i18n";
+import { host, setProjectPath } from "./platform";
 
 const IMAGE = /\.(bmp|jpe?g|png|svg|webp|gif|avif)$/i;
 const PROJECT = /\.(ptex|json)$/i;
@@ -30,7 +31,11 @@ export async function dropFiles(e: React.DragEvent, at: { x: number; y: number }
     try {
       if (PROJECT.test(f.name)) {
         const data = parseProject(await f.text());
-        if (data.nodes) editor.open(data, f.name.replace(PROJECT, ""));
+        if (data.nodes) {
+          editor.open(data, f.name.replace(PROJECT, ""));
+          // the desktop app saves it back where it came from
+          setProjectPath(editor.root, host?.pathForFile(f) ?? null);
+        }
         else editor.setStatus(t("{0} is not a Material Maker project", f.name));
       } else if (IMAGE.test(f.name) || f.type.startsWith("image/")) {
         const url = await readDataUrl(f);

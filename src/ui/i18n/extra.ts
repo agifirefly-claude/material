@@ -565,5 +565,8 @@ export const EXTRA: Record<string, Record<string, string>> = {
     "Spritesheet, 2 columns": "精灵图，2 列",
     "Spritesheet, 4 columns": "精灵图，4 列",
     "Spritesheet, 8 columns": "精灵图，8 列",
+    "Saved {0}": "已保存 {0}",
+    "Cannot save {0}: {1}": "无法保存 {0}：{1}",
+    Projects: "项目",
   },
 };
