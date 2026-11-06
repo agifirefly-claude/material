@@ -44,8 +44,7 @@ describe("examples", () => {
       }
     }
     expect(outputs).toBeGreaterThan(0);
-    // doc_tools has a node whose code is broken upstream; everything else must be clean
-    if (name !== "doc_tools") expect(problems).toEqual([]);
+    expect(problems).toEqual([]);
   });
 
   it.each(examples)("%s saves what it loads", (name) => {

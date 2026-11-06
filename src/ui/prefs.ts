@@ -1,5 +1,7 @@
 /* Preferences (Material Maker's windows/preferences), kept in the browser. */
 import { useSyncExternalStore } from "react";
+import { BAKE_SETTINGS } from "../engine/paint/mapgen";
+import { MESH_MAP_SIZE } from "../engine/paint/meshmaps";
 
 export interface Prefs {
   /** UI scale in percent; 0 follows the browser */
@@ -32,6 +34,13 @@ export interface Prefs {
   themeBase: string;
   themeAccent: string;
   themeContrast: number;
+  /** Material Maker's bake_ray_count, bake_ao_ray_dist, bake_ao_ray_bias, bake_denoise_radius, and the mesh map size */
+  bakeRayCount: number;
+  bakeAoRayDist: number;
+  bakeAoRayBias: number;
+  bakeDenoiseRadius: number;
+  /** exponent: Mesh Map nodes bake at 2^n */
+  meshMapSize: number;
   /** panel layout */
   layout: Layout;
   /** saved panel layouts (panels_presets_dialog) */
@@ -77,6 +86,11 @@ export const DEFAULT_PREFS: Prefs = {
   confirmQuit: true,
   fpsLimit: 0,
   rememberAnimExport: true,
+  bakeRayCount: 64,
+  bakeAoRayDist: 128,
+  bakeAoRayBias: 0.005,
+  bakeDenoiseRadius: 3,
+  meshMapSize: 11,
   themeBase: "",
   themeAccent: "",
   themeContrast: 1,
@@ -113,6 +127,11 @@ export function setPrefs(patch: Partial<Prefs>): void {
 }
 
 export function applyPrefs(): void {
+  BAKE_SETTINGS.ray_count = prefs.bakeRayCount;
+  BAKE_SETTINGS.ao_ray_dist = prefs.bakeAoRayDist;
+  BAKE_SETTINGS.ao_ray_bias = prefs.bakeAoRayBias;
+  BAKE_SETTINGS.denoise_radius = prefs.bakeDenoiseRadius;
+  MESH_MAP_SIZE.value = 2 ** prefs.meshMapSize;
   if (typeof document === "undefined") return;
   const root = document.documentElement;
   root.style.zoom = prefs.uiScale ? String(prefs.uiScale / 100) : "";

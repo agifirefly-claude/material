@@ -33,6 +33,20 @@ for (const f of fs.readdirSync(nodeDir).sort()) {
   if (!f.endsWith(".mmg")) continue;
   nodes[f.slice(0, -4)] = joinLines(read(path.join(nodeDir, f)));
 }
+// fixes to upstream node definitions, kept apart from the vendored files
+const patches = read(path.join(mm, "patches.json")).patches;
+for (const p of patches) {
+  let o = nodes[p.node];
+  for (const k of p.path.slice(0, -1)) o = o?.[k];
+  if (!o) throw new Error(`patch for ${p.node}: path ${p.path.join("/")} not found`);
+  const key = p.path[p.path.length - 1];
+  if (p.replace) {
+    for (const [from, to] of p.replace) {
+      if (!String(o[key]).includes(from)) throw new Error(`patch for ${p.node}: "${from}" not found`);
+      o[key] = String(o[key]).replaceAll(from, to);
+    }
+  } else o[key] = p.value;
+}
 fs.writeFileSync(path.join(out, "nodes.json"), JSON.stringify(nodes));
 
 // io types with their 2D preview functions

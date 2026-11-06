@@ -461,12 +461,18 @@ export class GenShader extends Gen {
       const inputDef = this.pre.inputs[index];
       const source = this.getSource(index);
       if (!source) {
+        // unconnected texture attributes: an empty texture, so code that samples it still compiles
+        if (suffix === "texture") {
+          rv.addUniform("mm_empty_texture", "sampler2D", null);
+          return "mm_empty_texture";
+        }
+        if (suffix === "size") return "4.0";
         const oldUv = variables.uv;
-        variables.uv = parameters;
-        let def = String(inputDef.default ?? defaultValueFor(inputDef.type));
-        // a bare number for a vector input (Material Maker files have some) is that number in every component
+        // $in.variation(uv, seed[, controls]) unconnected: the default only takes the coordinates
+        const list = parameters.startsWith("(") ? splitParameters(parameters) : [];
+        variables.uv = suffix === "variation" && list.length > 1 ? `(${list[0]})` : parameters;
         const vt = registry.ioTypes[inputDef.type]?.type;
-        if (/^\s*-?\d+(\.\d*)?\s*$/.test(def) && vt && vt !== "float") def = `${vt}(${def.includes(".") ? def.trim() : def.trim() + ".0"})`;
+        const def = coerceDefault(String(inputDef.default ?? defaultValueFor(inputDef.type)), vt);
         const replaced = this.replaceVariables(def, variables, rv, context);
         variables.uv = oldUv;
         return replaced;
@@ -667,4 +673,23 @@ export function defaultValueFor(type: string): string {
       return "vec4(0.0)";
   }
   return "0.0";
+}
+
+/** An input's default value made to fit the input's GLSL type: Material Maker files have bare numbers for vectors
+ *  and vectors of the wrong size (an sdf3d input defaulting to vec2(0.0)), which desktop GLSL rejects too. */
+export function coerceDefault(def: string, type: string | undefined): string {
+  if (!type) return def;
+  const d = def.trim();
+  if (/^-?\d+(\.\d*)?$/.test(d)) return type === "float" ? d : `${type}(${d.includes(".") ? d : d + ".0"})`;
+  const m = /^vec([234])\(/.exec(d);
+  if (m && findMatchingParenthesis(d, d.indexOf("(")) === d.length - 1) {
+    const n = +m[1];
+    const want = type === "float" ? 1 : /^vec([234])$/.exec(type) ? +type[3] : 0;
+    if (want && want !== n) {
+      if (want === 1) return `(${d}).x`;
+      if (want < n) return `(${d}).${"xyzw".slice(0, want)}`;
+      return `${type}(${d}${", 0.0".repeat(want - n - 1)}, ${want === 4 ? "1.0" : "0.0"})`;
+    }
+  }
+  return def;
 }

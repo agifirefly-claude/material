@@ -24,7 +24,10 @@ export const MAP_DEFINITIONS: Record<MapName, MapDef> = {
 };
 
 /** the baking settings of Material Maker's preferences (globals.gd) */
+/** Material Maker's bake_* preferences (globals.gd defaults); set from the preferences */
 export const BAKE_SETTINGS = { ray_count: 64, ao_ray_dist: 128.0, ao_ray_bias: 0.005, denoise_radius: 3 };
+/** maps baked with other settings are other maps */
+const bakeKey = () => `${BAKE_SETTINGS.ray_count}/${BAKE_SETTINGS.ao_ray_dist}/${BAKE_SETTINGS.ao_ray_bias}/${BAKE_SETTINGS.denoise_radius}`;
 
 const V_IN = "in vec3 a_pos; in vec3 a_nrm; in vec4 a_tan; in vec2 a_uv; in vec3 a_col;\n";
 const VERTEX: Record<string, string> = {
@@ -208,12 +211,12 @@ export class MeshMapGenerator {
   }
 
   has(m: PaintMesh, map: MapName, size: number) {
-    return this.maps.has(`${m.id}:${map}:${size}`);
+    return this.maps.has(`${m.id}:${map}:${size}:${bakeKey()}`);
   }
 
   /** the map as a renderer Target (square, linear filtering, repeat) */
   get(m: PaintMesh, map: MapName, size = 2048): Target {
-    const key = `${m.id}:${map}:${size}`;
+    const key = `${m.id}:${map}:${size}:${bakeKey()}`;
     let t = this.targets.get(key);
     if (t) return t;
     const rt = this.getRT(m, map, size);
@@ -224,7 +227,7 @@ export class MeshMapGenerator {
   }
 
   getRT(m: PaintMesh, map: MapName, size = 2048): RT {
-    const key = `${m.id}:${map}:${size}`;
+    const key = `${m.id}:${map}:${size}:${bakeKey()}`;
     let rt = this.maps.get(key);
     if (rt) return rt;
     for (const d of MAP_DEFINITIONS[map].dependencies ?? []) this.getRT(m, d, size);

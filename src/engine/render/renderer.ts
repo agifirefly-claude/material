@@ -4,7 +4,7 @@ import { ShaderCode, type ShaderUniform, type TextureRef } from "../shader-code"
 import { buildFragmentShader, withPreview, type BuiltShader } from "./shader-source";
 import { fixFromErrors } from "./glsl-fix";
 import { GenBuffer, GenImage, GenIterateBuffer, GenText, GenTextureRef, GenTexture } from "../gen/texture";
-import { GenMeshMap, GenWebcam } from "../gen/misc";
+import { GenMeshMap, GenWebcam, meshMapHooks } from "../gen/misc";
 import { isColor } from "../params/types";
 
 export interface Target {
@@ -194,6 +194,8 @@ export class Renderer {
 
   /* ---------- resolving samplers ---------- */
   private resolve(ref: TextureRef, stack: Set<string>): Resolved {
+    const meshMap = (ref as TextureRef & { meshMap?: string }).meshMap;
+    if (meshMap) return (meshMapHooks.texture?.(this, meshMap) as Resolved | null) ?? { target: null, sig: "nomesh" };
     // a texture the caller already has (TAA accumulation, ...)
     const direct = (ref as TextureRef & { target?: Target }).target;
     if (direct) return { target: direct, sig: ref.key };

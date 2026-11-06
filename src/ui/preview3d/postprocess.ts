@@ -30,18 +30,38 @@ vec3 aces(vec3 c, float w) {
   vec3 t = odt_to_rgb * acesCurve(rgb_to_rrt * (c * bias));
   return t / acesCurve(vec3(w * bias));
 }
-// AgX with Godot's white point (the top of the log2 range) and contrast (the slope of the sigmoid)
-vec3 agx(vec3 c, float w, float contrast) {
-  const mat3 inset = mat3(0.856627153315983, 0.137318972929847, 0.11189821299995, 0.0951212405381588, 0.761241990602591, 0.0767994186031903, 0.0482516061458583, 0.101439036467562, 0.811302368396859);
-  const mat3 outset = mat3(1.1271005818144368, -0.1413297634984383, -0.14132976349843826, -0.11060664309660323, 1.157823702216272, -0.11060664309660294, -0.016493938717834573, -0.016493938717834257, 1.2519364065950405);
-  const float minEv = -12.47393;
-  float maxEv = log2(max(w, 1.0001));
-  c = inset * max(c, vec3(1e-10));
-  c = clamp((log2(c) - minEv) / (maxEv - minEv), 0.0, 1.0);
-  vec3 x = (c - 0.6060606) * contrast * 2.4;
-  vec3 s = 0.5 + 0.5 * x / sqrt(1.0 + x * x);
-  c = outset * s;
-  return pow(max(c, vec3(0.0)), vec3(2.2));
+// AgX exactly as Godot 4 does it (tonemap.glsl tonemap_agx + allenwp_curve, parameters from
+// environment_storage.cpp environment_get_tonemap_parameters), for SDR output (output_max_value = 1)
+vec3 agx(vec3 color, float whiteSetting, float contrast) {
+  const float output_max_value = 1.0;
+  const float awp_crossover_point = 0.18;
+  const float awp_shoulder_max = output_max_value - awp_crossover_point;
+  float awp_high_clip = max(2.0, whiteSetting) * output_max_value;
+  float awp_toe_a = ((1.0 / awp_crossover_point) - 1.0) * pow(awp_crossover_point, contrast);
+  float awp_slope_denom = pow(awp_crossover_point, contrast) + awp_toe_a;
+  float awp_slope = (contrast * pow(awp_crossover_point, contrast - 1.0) * awp_toe_a) / (awp_slope_denom * awp_slope_denom);
+  float awp_w = awp_high_clip - awp_crossover_point;
+  awp_w = awp_w * awp_w / awp_shoulder_max * awp_slope;
+  const mat3 rec709_to_rec2020_agx_inset_matrix = mat3(
+      0.544814746488245, 0.140416948464053, 0.0888104196149096,
+      0.373787398372697, 0.754137554567394, 0.178871756420858,
+      0.0813978551390581, 0.105445496968552, 0.732317823964232);
+  const mat3 agx_outset_rec2020_to_rec709_matrix = mat3(
+      1.96488741169489, -0.299313364904742, -0.164352742528393,
+      -0.855988495690215, 1.32639796461980, -0.238183969428088,
+      -0.108898916004672, -0.0270845997150571, 1.40253671195648);
+  color = rec709_to_rec2020_agx_inset_matrix * max(color, vec3(0.0));
+  // allenwp curve
+  vec3 x = color;
+  vec3 sh = x - awp_crossover_point;
+  vec3 slope_s = awp_slope * sh;
+  sh = slope_s * (1.0 + sh / awp_w) / (1.0 + (slope_s / awp_shoulder_max));
+  sh += awp_crossover_point;
+  vec3 t = pow(x, vec3(contrast));
+  t = t / (t + awp_toe_a);
+  color = mix(sh, t, vec3(lessThan(x, vec3(awp_crossover_point))));
+  color = min(vec3(output_max_value), color);
+  return agx_outset_rec2020_to_rec709_matrix * color;
 }
 void main() {
   vec4 t = texture2D(tDiffuse, vUv);

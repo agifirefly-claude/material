@@ -45,7 +45,25 @@ async function render(g: GenAutoExport): Promise<Blob | null> {
   return imageDataToBlob(r.toImageData(res.target), formatOf(String(g.getParameter("filename"))));
 }
 
-async function writeAll() {
+let writing: Promise<void> | null = null;
+let again = false;
+/** writes the files that are out of date; calls made while it runs are folded into one more run */
+function writeAll(): Promise<void> {
+  if (writing) {
+    again = true;
+    return writing;
+  }
+  writing = (async () => {
+    do {
+      again = false;
+      await writeOnce();
+    } while (again);
+    writing = null;
+  })();
+  return writing;
+}
+
+async function writeOnce() {
   for (const g of autoExports()) {
     const h = handles.get(g.id);
     if (!h) continue;

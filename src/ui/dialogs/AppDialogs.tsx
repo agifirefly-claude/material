@@ -125,6 +125,28 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           ))}
         </select>
       </Row>
+      <div className="sect">{t("Mesh maps")}</div>
+      <Row label={t("Mesh map size")}>
+        <select value={p.meshMapSize} onChange={(e) => setPrefs({ meshMapSize: +e.target.value })}>
+          {[9, 10, 11, 12].map((i) => (
+            <option key={i} value={i}>
+              {2 ** i}×{2 ** i}
+            </option>
+          ))}
+        </select>
+      </Row>
+      <Row label={t("Rays per pixel")}>
+        <input type="number" min={1} max={1024} value={p.bakeRayCount} onChange={(e) => setPrefs({ bakeRayCount: Math.max(1, Math.round(+e.target.value)) })} />
+      </Row>
+      <Row label={t("Ambient occlusion ray distance")}>
+        <input type="number" min={0} step={1} value={p.bakeAoRayDist} onChange={(e) => setPrefs({ bakeAoRayDist: Math.max(0, +e.target.value) })} />
+      </Row>
+      <Row label={t("Ambient occlusion ray bias")}>
+        <input type="number" min={0} step={0.001} value={p.bakeAoRayBias} onChange={(e) => setPrefs({ bakeAoRayBias: Math.max(0, +e.target.value) })} />
+      </Row>
+      <Row label={t("Denoise radius")}>
+        <input type="number" min={0} max={16} value={p.bakeDenoiseRadius} onChange={(e) => setPrefs({ bakeDenoiseRadius: Math.max(0, Math.round(+e.target.value)) })} />
+      </Row>
       <div className="sect">{t("Global parameters")}</div>
       <div style={{ color: "var(--text3)", marginBottom: 4 }}>{t("Values every node can read as $name (Material Maker's global parameters).")}</div>
       {globals.map(([k, v], i) => (

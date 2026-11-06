@@ -2,6 +2,12 @@
  * catalogs in public/data/locale). */
 export const EXTRA: Record<string, Record<string, string>> = {
   zh: {
+    "Mesh maps": "网格贴图",
+    "Mesh map size": "网格贴图尺寸",
+    "Rays per pixel": "每像素光线数",
+    "Ambient occlusion ray distance": "环境光遮蔽光线距离",
+    "Ambient occlusion ray bias": "环境光遮蔽光线偏移",
+    "Denoise radius": "降噪半径",
     "Choose .obj / .glb / .gltf / .fbx…": "选择 .obj / .glb / .gltf / .fbx…",
     "Reset panel layout": "重置面板布局",
     "Auto export: wrote {0}": "自动导出：已写入 {0}",
