@@ -15,7 +15,7 @@ import { expressionShaderCode, planExport, processShader, processConditionals, c
 import type { TextureRef } from "../engine/shader-code";
 import { t } from "./i18n";
 import { parseProject, serializeProject } from "../engine/ptex";
-import { RenderFailure } from "../engine/render/service";
+import { RenderFailure, type RenderService } from "../engine/render/service";
 import { fileName, host, projectPath, setProjectPath } from "./platform";
 import type { Renderer, Target } from "../engine/render/renderer";
 import { encodeExr } from "./preview2d/exr";
@@ -127,6 +127,24 @@ export async function encodeTarget(r: Renderer, tgt: Target, name: string): Prom
   return new Uint8Array(await (await imageDataToBlob(r.toImageData(tgt), f)).arrayBuffer());
 }
 
+/** a texture a sampler reads (a material's buffer), encoded as its file name asks: in a session of the render service,
+ *  so in the worker where the browser can. Null when there is nothing to read. */
+export async function bufferFile(svc: RenderService, ref: TextureRef, name: string, signal?: AbortSignal): Promise<Uint8Array | null> {
+  const exr = imageFormatOf(name) === "exr";
+  const got = await svc.withSession(async (s) => {
+    s.time = svc.time;
+    const t = s.textureFor(ref);
+    if (!t) return null;
+    const i = s.read(t, exr);
+    const px = (await s.flush({ signal }))[i];
+    return px ? { px, w: t.size, h: t.height ?? t.size } : null;
+  });
+  if (!got) return null;
+  if (exr) return encodeExr(got.px as Float32Array, got.w, got.h);
+  const img = new ImageData(got.px as Uint8ClampedArray<ArrayBuffer>, got.w, got.h);
+  return new Uint8Array(await (await imageDataToBlob(img, imageFormatOf(name) as "png")).arrayBuffer());
+}
+
 export function imageDataToPng(img: ImageData): Promise<Blob> {
   const c = document.createElement("canvas");
   c.width = img.width;
@@ -229,7 +247,7 @@ export async function exportMaterialMaps(size?: number) {
 
 /** runs one of the material's export profiles (Godot, Unity, Unreal, Blender, glTF…) and downloads the files as a zip */
 export async function exportForEngine(profile: string, size?: number) {
-  const r = editor.renderer!;
+  const r = editor.renders!;
   const m = findMaterial(editor.root);
   if (!m) return editor.setStatus(t("No material node to export"));
   const s = size ?? m.imageSize;
@@ -250,12 +268,13 @@ export async function exportForEngine(profile: string, size?: number) {
         if (imageFormatOf(f.name) === "exr") files[f.name] = encodeExr(await editor.renders!.floats(sc, s, { signal }), s, s);
         else files[f.name] = new Uint8Array(await (await imageDataToBlob(await editor.renders!.image(sc, s, { signal }), imageFormatOf(f.name) as "png")).arrayBuffer());
       } else if (f.kind === "buffer") {
-        // the material's own buffers are read from the page's renderer, which holds them
-        await r.imagesLoaded(editor.root);
+        // the material's own buffers, rendered and read in a session (in the worker where the browser can)
         buffersCode ??= processShader(m, processConditionals(String(m.shaderModel.preview_shader ?? ""), connectionsAndParametersContext(m)));
         const u = buffersCode.shaderCode.uniforms.find((x) => x.name === f.uniform);
-        const t = u && r.textureFor(u.value as TextureRef);
-        if (t) files[f.name] = await encodeTarget(r, t, f.name);
+        if (u) {
+          const bytes = await bufferFile(r, u.value as TextureRef, f.name, signal);
+          if (bytes) files[f.name] = bytes;
+        }
       }
     } catch (e) {
       if (e instanceof RenderFailure && e.kind === "cancelled") throw e;

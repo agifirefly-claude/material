@@ -13,20 +13,32 @@ export function PreviewRay({ m }: { m: GenMaterial }) {
   const [size, setSize] = useState(384);
   const [error, setError] = useState("");
   const isRaymarch = m.getInputDefs().some((d) => d.name === "distance");
+  // in the render worker where the browser can: the page only builds the shader; one render at a time, the newest
+  // request wins
+  const busy = useRef<Promise<unknown>>(Promise.resolve());
+  useEffect(() => () => editor.renders?.forget("3d-ray"), []);
   useEffect(() => {
-    const r = editor.renderer;
+    const r = editor.renders;
     if (!r || !canvas.current) return;
-    const id = requestAnimationFrame(() => {
+    let stale = false;
+    const id = requestAnimationFrame(async () => {
+      await busy.current;
+      if (stale || !canvas.current) return;
       try {
         r.time = performance.now() / 1000;
-        const res = r.renderKeyed("3d-ray", raymarchPreview(m, { ...cam, dist: isRaymarch ? cam.dist * 1.4 : cam.dist }, shape), size, false);
-        setError(res.error ? res.error.message : "");
-        if (res.target) r.present(res.target, canvas.current!.getContext("2d")!, false);
+        const sc = raymarchPreview(m, { ...cam, dist: isRaymarch ? cam.dist * 1.4 : cam.dist }, shape);
+        const job = r.previews([{ key: "3d-ray", sc, size, preview: false, ctx: canvas.current.getContext("2d")!, checker: false, force: true }]);
+        busy.current = job.catch(() => null);
+        const [res] = await job;
+        if (!stale) setError(res.error ? res.error.message : "");
       } catch (e) {
         setError(String(e));
       }
     });
-    return () => cancelAnimationFrame(id);
+    return () => {
+      stale = true;
+      cancelAnimationFrame(id);
+    };
   }, [m, cam, shape, size, editor.contentVersion, isRaymarch]);
   return (
     <div className="preview-pane" style={{ flex: 1 }}>

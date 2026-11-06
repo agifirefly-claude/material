@@ -1,11 +1,13 @@
 /* Export animation and TAA render windows (ports of windows/export_animation and windows/export_taa). They open from
  * the File menu (for the selected node) or the 2D preview's export menu (for the node it shows). */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Gen } from "../../engine/gen/base";
 import { editor } from "../store";
 import { downloadBlob } from "../exporting";
 import { rootOf } from "../../engine/render/maps";
-import { canvasBlob, canvasOf, exportAnimation, renderImage, targetExr, TaaRender, type AnimationSettings, type TaaSettings } from "./exports";
+import { exportAnimation, TaaRender, type AnimationSettings, type TaaSettings } from "./exports";
+import { imageShaderCode } from "./view";
+import { MainOnlyError } from "../../engine/render/recorder";
 import { t } from "../i18n";
 import { getPrefs } from "../prefs";
 
@@ -55,41 +57,64 @@ export function ExportDialogsHost() {
   return req.kind === "animation" ? <AnimationDialog gen={req.gen} output={req.output} onClose={close} /> : <TaaDialog gen={req.gen} output={req.output} onClose={close} />;
 }
 
+let thumbKeys = 0;
+/** draws one output at a time into a canvas, through the render service's previews (in the worker where it can) */
+function drawThumb(key: string, gen: Gen, output: number, size: number, time: number, ctx: CanvasRenderingContext2D): Promise<void> {
+  const r = editor.renders;
+  if (!r) return Promise.resolve();
+  const saved = r.time;
+  r.time = time;
+  // the previews are recorded at once: the time can go back right away
+  const job = r.previews([{ key, sc: imageShaderCode(gen, output, size), size, preview: false, ctx, checker: false, force: true }]);
+  r.time = saved;
+  return job.then(([res]) => {
+    if (res.error) throw res.error;
+  });
+}
+
 function Thumb({ gen, output, time, size = 128 }: { gen: Gen; output: number; time: number; size?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const key = useMemo(() => "anim-thumb:" + thumbKeys++, []);
+  useEffect(() => () => editor.renders?.forget(key), [key]);
   useEffect(() => {
-    const r = editor.renderer;
-    if (!r || !ref.current) return;
-    try {
-      ref.current.getContext("2d")!.putImageData(renderImage(r, gen, output, size, time), 0, 0);
-    } catch (e) {
-      console.warn(e);
-    }
-  }, [gen, output, time, size]);
+    if (!ref.current) return;
+    drawThumb(key, gen, output, size, time, ref.current.getContext("2d")!).catch((e) => console.warn(e));
+  }, [gen, output, time, size, key]);
   return <canvas ref={ref} width={size} height={size} className="dlg-thumb" />;
 }
 
 function AnimatedThumb({ gen, output, begin, end, size = 128 }: { gen: Gen; output: number; begin: number; end: number; size?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const key = useMemo(() => "anim-thumb:" + thumbKeys++, []);
+  useEffect(() => () => editor.renders?.forget(key), [key]);
   useEffect(() => {
     let raf = 0,
-      last = 0;
+      last = 0,
+      busy = false,
+      stopped = false;
     const start = performance.now();
     const loop = (now: number) => {
+      if (stopped) return;
       raf = requestAnimationFrame(loop);
-      if (now - last < 66 || !ref.current || !editor.renderer) return;
+      // one frame at a time: the next waits for the one being rendered
+      if (busy || now - last < 66 || !ref.current) return;
       last = now;
       const span = Math.abs(end - begin);
       const t = span === 0 ? begin : begin + Math.sign(end - begin) * (((now - start) / 1000) % span);
-      try {
-        ref.current.getContext("2d")!.putImageData(renderImage(editor.renderer, gen, output, size, t), 0, 0);
-      } catch {
-        cancelAnimationFrame(raf);
-      }
+      busy = true;
+      drawThumb(key, gen, output, size, t, ref.current.getContext("2d")!)
+        .then(() => (busy = false))
+        .catch(() => {
+          stopped = true;
+          cancelAnimationFrame(raf);
+        });
     };
     raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  }, [gen, output, begin, end, size]);
+    return () => {
+      stopped = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [gen, output, begin, end, size, key]);
   return <canvas ref={ref} width={size} height={size} className="dlg-thumb" />;
 }
 
@@ -185,41 +210,57 @@ function TaaDialog({ gen, output, onClose }: { gen: Gen; output: number; onClose
   settings.current = s;
   const [width, height] = dims;
   useEffect(() => {
-    const r = editor.renderer!;
-    const t = new TaaRender(r, gen, output, width, height);
-    taa.current = t;
-    let raf = 0;
-    // samples start once the pictures are there, or the first ones would be black where they go (#758)
-    let ready = false;
-    void r.imagesLoaded(rootOf(gen)).then(() => (ready = true));
-    const loop = () => {
-      raf = requestAnimationFrame(loop);
-      if (!ready || t.iteration >= 4096 || pausedRef.current) return;
-      try {
-        // as many samples as fit in a few milliseconds, so the page stays responsive
+    const svc = editor.renders!;
+    let stopped = false;
+    let t: TaaRender | null = null;
+    const frame = () => new Promise((res) => requestAnimationFrame(res));
+    const run = async (onPage: boolean) => {
+      t = new TaaRender(svc.session({ onPage }), gen, output, width, height);
+      taa.current = t;
+      // samples start once the pictures are there, or the first ones would be black where they go (#758)
+      await svc.imagesLoaded(rootOf(gen));
+      // in the worker: a batch of samples at a time, sized to take a few tens of milliseconds
+      let n = 1;
+      while (!stopped) {
+        await frame();
+        if (stopped || t.iteration >= 4096 || pausedRef.current) continue;
         const start = performance.now();
         const before = t.iteration;
-        do t.step();
-        while (performance.now() - start < 8 && t.iteration < 4096);
-        if (Math.floor(t.iteration / 16) !== Math.floor(before / 16) || t.iteration <= 4) {
-          r.present(t.resolve(settings.current), canvas.current!.getContext("2d")!, false);
-          setIteration(t.iteration);
-        }
-      } catch (e) {
-        console.warn("TAA", e);
-        cancelAnimationFrame(raf);
+        if (t.session.onWorker) for (let i = 0; i < n && t.iteration < 4096; i++) t.step();
+        // on the page: as many samples as fit in a few milliseconds, so the page stays responsive
+        else
+          do {
+            t.step();
+            t.session.sync();
+          }
+          while (performance.now() - start < 8 && t.iteration < 4096);
+        const show = Math.floor(t.iteration / 16) !== Math.floor(before / 16) || t.iteration <= 4 || t.iteration >= 4096;
+        if (show) await t.show(settings.current, canvas.current!.getContext("2d")!);
+        else await t.session.flush();
+        if (stopped) break;
+        if (show) setIteration(t.iteration);
+        const ms = performance.now() - start;
+        if (ms < 30) n = Math.min(64, n * 2);
+        else if (ms > 60) n = Math.max(1, n >> 1);
       }
     };
-    raf = requestAnimationFrame(loop);
+    run(false)
+      .catch((e) => {
+        // a node only the page can render (a mesh map...): start again there
+        if (!(e instanceof MainOnlyError) || stopped) throw e;
+        t?.dispose();
+        return run(true);
+      })
+      .catch((e) => console.warn("TAA", e));
     return () => {
-      cancelAnimationFrame(raf);
-      t.dispose();
+      stopped = true;
+      t?.dispose();
       taa.current = null;
     };
   }, [gen, output, width, height]);
   useEffect(() => {
     const t = taa.current;
-    if (t && editor.renderer && canvas.current) editor.renderer.present(t.resolve(s), canvas.current.getContext("2d")!, false);
+    if (t && canvas.current) t.show(s, canvas.current.getContext("2d")!).catch((e) => console.warn("TAA", e));
   }, [s]);
   const set = (p: Partial<TaaSettings>) => setS((x) => ({ ...x, ...p }));
   return (
@@ -269,18 +310,17 @@ function TaaDialog({ gen, output, onClose }: { gen: Gen; output: number; onClose
             className="primary"
             onClick={async () => {
               const t = taa.current;
-              const r = editor.renderer!;
               if (!t) return;
-              downloadBlob(await canvasBlob(canvasOf(r.toImageData(t.resolve(s)))), `${editor.title}_${gen.name}_taa.png`);
+              downloadBlob(await t.png(s), `${editor.title}_${gen.name}_taa.png`);
             }}
           >
             {t("Export PNG…")}
           </button>
           <button
-            onClick={() => {
+            onClick={async () => {
               const tr = taa.current;
               if (!tr) return;
-              downloadBlob(targetExr(editor.renderer!, tr.resolve(s)), `${editor.title}_${gen.name}_taa.exr`);
+              downloadBlob(await tr.exr(s), `${editor.title}_${gen.name}_taa.exr`);
             }}
           >
             {t("Export EXR…")}

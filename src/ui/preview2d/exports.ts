@@ -1,9 +1,9 @@
 /* Exports of the 2D preview (port of panels/preview_2d/export_menu.gd, windows/export_animation and windows/export_taa). */
 import { zipSync } from "fflate";
 import type { Gen } from "../../engine/gen/base";
-import { ShaderCode, type TextureRef } from "../../engine/shader-code";
 import type { Renderer, Target } from "../../engine/render/renderer";
 import type { RenderService } from "../../engine/render/service";
+import { sessionFrame } from "./taa";
 import { rootOf } from "../../engine/render/maps";
 import { downloadBlob } from "../exporting";
 import { imageShaderCode } from "./view";
@@ -76,21 +76,33 @@ export interface AnimationSettings {
 
 /** renders the frames at times begin + (end-begin)*i/images and writes a spritesheet PNG or a zip of PNGs */
 export async function exportAnimation(svc: RenderService, g: Gen, output: number, s: AnimationSettings, name: string, progress?: (f: number) => void): Promise<Blob> {
-  const frames: ImageData[] = [];
-  const r = svc.main;
+  let frames: ImageData[] = [];
   await svc.imagesLoaded(rootOf(g));
   const saved = svc.time;
-  for (let i = 0; i < s.images; i++) {
-    const time = s.begin + ((s.end - s.begin) * i) / s.images;
-    // square frames render in the worker; others (rare) on the page
-    if ((s.height ?? s.size) === s.size) {
-      svc.time = time;
-      frames.push(await svc.image(imageShaderCode(g, output, s.size), s.size, { preview: false }));
-    } else frames.push(renderImage(r, g, output, s.size, time, s.height ?? s.size));
-    progress?.((i + 1) / s.images);
-    await new Promise((res) => setTimeout(res, 0));
+  const timeOf = (i: number) => s.begin + ((s.end - s.begin) * i) / s.images;
+  const fh = s.height ?? s.size;
+  if (fh === s.size) {
+    try {
+      for (let i = 0; i < s.images; i++) {
+        svc.time = timeOf(i);
+        frames.push(await svc.image(imageShaderCode(g, output, s.size), s.size, { preview: false }));
+        progress?.((i + 1) / s.images);
+      }
+    } finally {
+      svc.time = saved;
+    }
+  } else {
+    // frames that are not square: a target of their own, in a session (in the worker where the browser can)
+    await svc.withSession(async (ss) => {
+      frames = [];
+      const t = ss.createTarget(s.size, fh);
+      const sc = imageShaderCode(g, output, Math.max(s.size, fh));
+      for (let i = 0; i < s.images; i++) {
+        frames.push(await sessionFrame(ss, sc, t, timeOf(i)));
+        progress?.((i + 1) / s.images);
+      }
+    });
   }
-  svc.time = saved;
   if (s.spritesheet === 0) {
     const files: Record<string, Uint8Array> = {};
     const digits = String(s.images).length;
@@ -106,7 +118,6 @@ export async function exportAnimation(svc: RenderService, g: Gen, output: number
     rows = Math.floor((s.images - 1) / cols) + 1;
   }
   const sheet = document.createElement("canvas");
-  const fh = s.height ?? s.size;
   sheet.width = s.size * cols;
   sheet.height = fh * rows;
   const ctx = sheet.getContext("2d")!;
@@ -114,112 +125,4 @@ export async function exportAnimation(svc: RenderService, g: Gen, output: number
   return canvasBlob(sheet);
 }
 
-/* ---------- TAA: jittered renders accumulated, averaged and optionally denoised ---------- */
-const DIVIDE = `
-vec4 mm_average(vec2 uv) { return texture(mm_acc, uv) / mm_taa.x; }
-vec4 mm_denoise_1(vec2 uv, vec2 duv, int radius) {
-  vec4 color = vec4(0.0);
-  float weight = 0.0;
-  for (int y = -radius; y < radius + 1; y++) {
-    for (int x = -radius; x < radius + 1; x++) {
-      color += mm_average(uv + vec2(ivec2(x, y)) * duv);
-      weight += 1.0;
-    }
-  }
-  return color / weight;
-}
-// smartDeNoise, Copyright (c) 2018-2019 Michele Morrone, BSD 2-Clause license (as in Material Maker)
-vec4 mm_denoise_2(vec2 uv, vec2 size, float sigma, float kSigma, float threshold) {
-  float INV_SQRT_OF_2PI = 0.39894228040143267793994605993439;
-  float INV_PI = 0.31830988618379067153776752674503;
-  float radius = round(kSigma * sigma);
-  float radQ = radius * radius;
-  float invSigmaQx2 = 0.5 / (sigma * sigma);
-  float invSigmaQx2PI = INV_PI * invSigmaQx2;
-  float invThresholdSqx2 = 0.5 / (threshold * threshold);
-  float invThresholdSqrt2PI = INV_SQRT_OF_2PI / threshold;
-  vec4 centrPx = mm_average(uv);
-  float zBuff = 0.0;
-  vec4 aBuff = vec4(0.0);
-  for (float dx = -radius; dx <= radius; dx++) {
-    float pt = sqrt(radQ - dx * dx);
-    for (float dy = -pt; dy <= pt; dy++) {
-      vec2 d = vec2(dx, dy);
-      float blurFactor = exp(-dot(d, d) * invSigmaQx2) * invSigmaQx2PI;
-      vec4 walkPx = mm_average(uv + d / size);
-      vec4 dC = walkPx - centrPx;
-      float deltaFactor = exp(-dot(dC, dC) * invThresholdSqx2) * invThresholdSqrt2PI * blurFactor;
-      zBuff += deltaFactor;
-      aBuff += deltaFactor * walkPx;
-    }
-  }
-  return aBuff / zBuff;
-}
-vec4 mm_divide(vec2 uv) {
-  vec4 c;
-  int mode = int(mm_taa.z);
-  if (mode == 1) c = mm_denoise_1(uv, 1.0 / mm_size, int(mm_taa.w));
-  else if (mode == 2) c = mm_denoise_2(uv, mm_size, mm_taa2.x, mm_taa2.y, mm_taa2.z);
-  else c = mm_average(uv);
-  return vec4(pow(max(c.rgb, vec3(0.0)), vec3(mm_taa.y)), c.a);
-}
-`;
-
-export interface TaaSettings {
-  gamma: number;
-  denoise: 0 | 1 | 2;
-  radius: number;
-  sigma: number;
-  kSigma: number;
-  threshold: number;
-}
-
-export class TaaRender {
-  acc: Target;
-  avg: Target;
-  iteration = 0;
-  private accumulate: ShaderCode & { mmMainUv?: string };
-  private ref: TextureRef & { target: Target };
-  constructor(
-    private r: Renderer,
-    g: Gen,
-    output: number,
-    public width: number,
-    public height = width,
-  ) {
-    // like Material Maker's TAA window, any width and height: uv still covers 0..1 on both axes
-    this.acc = r.createTarget(width, true, false, height);
-    this.avg = r.createTarget(width, true, false, height);
-    const src = imageShaderCode(g, output, Math.max(width, height));
-    this.accumulate = Object.assign(new ShaderCode(), src);
-    this.accumulate.uniforms = [...src.uniforms];
-    this.accumulate.addUniform("mm_jitter", "vec2", [0, 0]);
-    this.accumulate.mmMainUv = "(gl_FragCoord.xy + mm_jitter) / mm_size";
-    this.ref = { kind: "texture", key: "taa-acc", target: this.acc };
-  }
-  /** one more jittered sample */
-  step(): void {
-    if (this.iteration === 0) this.r.clearTarget(this.acc);
-    this.iteration++;
-    const u = this.accumulate.uniforms.find((x) => x.name === "mm_jitter")!;
-    u.value = [Math.random() - 0.5, Math.random() - 0.5];
-    this.r.time = performance.now() / 1000;
-    this.r.renderInto(this.accumulate, this.acc, true);
-  }
-  /** the average so far, into `avg` */
-  resolve(s: TaaSettings): Target {
-    const sc = new ShaderCode();
-    sc.addUniform("mm_acc", "sampler2D", this.ref);
-    sc.addUniform("mm_taa", "vec4", [Math.max(1, this.iteration), 1 / Math.max(0.01, s.gamma), s.denoise, s.radius]);
-    sc.addUniform("mm_taa2", "vec4", [s.sigma, s.kSigma, s.threshold, 0]);
-    sc.defs = DIVIDE;
-    sc.outputType = "rgba";
-    sc.outputValues = { rgba: "mm_divide(uv)" };
-    this.r.renderInto(sc, this.avg);
-    return this.avg;
-  }
-  dispose(): void {
-    this.r.deleteTarget(this.acc);
-    this.r.deleteTarget(this.avg);
-  }
-}
+export { TaaRender, sessionFrame, type TaaSettings } from "./taa";
