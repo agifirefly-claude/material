@@ -34,6 +34,20 @@ if (mode === "all" || mode === "examples") {
   console.log(`examples: ${Object.keys(r).length - bad} clean, ${bad} with failures`);
   if (bad) failed = true;
 }
+if (mode === "all" || mode === "exports") {
+  const r = await page.evaluate(() => window.runExports());
+  let bad = 0;
+  for (const [k, v] of Object.entries(r)) {
+    const problem = v.error || v.leftovers.length;
+    if (problem) bad++;
+    console.log(`${problem ? "FAIL" : "ok  "} ${k}: ${v.error ?? v.files.length + " files"}${v.leftovers?.length ? "\n     " + v.leftovers.slice(0, 5).join("\n     ") : ""}`);
+  }
+  if (bad) failed = true;
+}
+if (mode === "export-text") {
+  const [type, profile, file = "0"] = process.argv.slice(3);
+  console.log(await page.evaluate(([t, p, f]) => window.exportText(t, p, +f), [type, profile, file]));
+}
 if (mode === "shot") {
   const [name, out = "0", size = "512", file = `${name}.png`] = process.argv.slice(3);
   const url = await page.evaluate(([n, o, s]) => window.renderExample(n, +o, +s), [name, out, size]);

@@ -43,6 +43,11 @@ for (const t of ioTypes) {
 }
 fs.writeFileSync(path.join(out, "io_types.json"), JSON.stringify(ioTypes));
 
+// export templates (get_template_text reads them from the nodes directory)
+const templates = {};
+for (const f of fs.readdirSync(nodeDir)) if (f.endsWith(".tmpl")) templates[f] = fs.readFileSync(path.join(nodeDir, f), "utf8");
+fs.writeFileSync(path.join(out, "templates.json"), JSON.stringify(templates));
+
 // shared shader functions
 fs.writeFileSync(path.join(out, "shader_functions.glsl"), fs.readFileSync(path.join(mm, "shader_functions.glsl"), "utf8"));
 

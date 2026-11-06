@@ -71,10 +71,18 @@ export function Library() {
   const results = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return null;
-    return registry.library.filter((it) => {
-      const hay = (it.tree_item + " " + (it.display_name ?? "") + " " + (registry.aliases[it.tree_item] ?? "")).toLowerCase();
-      return s.split(/\s+/).every((w) => hay.includes(w));
-    });
+    const words = s.split(/\s+/);
+    const scored: [number, LibraryItem][] = [];
+    for (const it of registry.library) {
+      const name = (it.display_name ?? it.tree_item.split("/").pop() ?? "").toLowerCase();
+      const hay = (it.tree_item + " " + name + " " + it.type + " " + (registry.aliases[it.tree_item] ?? "")).toLowerCase();
+      if (!words.every((w) => hay.includes(w))) continue;
+      // names that match first, then node types, then paths and aliases; shorter paths first
+      let score = 0;
+      for (const w of words) score += name === w ? 0 : name.startsWith(w) ? 1 : name.includes(w) ? 2 : it.type.includes(w) ? 3 : it.tree_item.toLowerCase().includes(w) ? 4 : 6;
+      scored.push([score * 100 + it.tree_item.split("/").length, it]);
+    }
+    return scored.sort((a, b) => a[0] - b[0]).map((x) => x[1]);
   }, [q]);
   const toggle = (p: string) =>
     setOpen((o) => {

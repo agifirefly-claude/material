@@ -3,7 +3,10 @@ import JSON5 from "json5";
 import { zipSync } from "fflate";
 import { editor } from "./store";
 import { STANDARD_MAPS, findMaterial, hasStandardMaps, renderMap } from "./materialMaps";
+import { GenContext } from "../engine/context";
 import type { Dict } from "../engine/gen/base";
+import { expressionShaderCode, planExport, processShader, processConditionals, connectionsAndParametersContext } from "../engine/export";
+import type { TextureRef } from "../engine/shader-code";
 
 export function downloadBlob(blob: Blob, name: string) {
   const a = document.createElement("a");
@@ -118,4 +121,38 @@ export async function exportMaterialMaps(size?: number) {
   files[`${editor.title}.ptex`] = new TextEncoder().encode(projectText());
   downloadBlob(new Blob([zipSync(files, { level: 0 })], { type: "application/zip" }), `${editor.title}_maps.zip`);
   editor.setStatus(`Exported ${Object.keys(files).length - 1} maps`);
+}
+
+/** runs one of the material's export profiles (Godot, Unity, Unreal, Blender, glTF…) and downloads the files as a zip */
+export async function exportForEngine(profile: string, size?: number) {
+  const r = editor.renderer!;
+  const m = findMaterial(editor.root);
+  if (!m) return editor.setStatus("No material node to export");
+  const s = size ?? m.imageSize;
+  const prefix = editor.title || "material";
+  const plan = planExport(m, profile, prefix);
+  editor.setStatus(`Exporting ${plan.length} files for ${profile}…`);
+  await new Promise((res) => setTimeout(res, 30));
+  const files: Record<string, Uint8Array> = {};
+  let buffersCode: ReturnType<typeof processShader> | null = null;
+  for (const f of plan) {
+    try {
+      if (f.kind === "text") files[f.name] = new TextEncoder().encode(f.text);
+      else if (f.kind === "texture") {
+        const sc = f.output !== null ? m.getShaderCode("uv", f.output, new GenContext()) : expressionShaderCode(m, f.expression!);
+        const t = r.render(sc, s);
+        files[f.name] = new Uint8Array(await (await imageDataToPng(r.toImageData(t))).arrayBuffer());
+        r.deleteTarget(t);
+      } else if (f.kind === "buffer") {
+        buffersCode ??= processShader(m, processConditionals(String(m.shaderModel.preview_shader ?? ""), connectionsAndParametersContext(m)));
+        const u = buffersCode.shaderCode.uniforms.find((x) => x.name === f.uniform);
+        const t = u && r.textureFor(u.value as TextureRef);
+        if (t) files[f.name] = new Uint8Array(await (await imageDataToPng(r.toImageData(t))).arrayBuffer());
+      }
+    } catch (e) {
+      console.error("export", f.name, e);
+    }
+  }
+  downloadBlob(new Blob([zipSync(files, { level: 0 })], { type: "application/zip" }), `${prefix}_${profile.replaceAll("/", "_").replaceAll(" ", "_")}.zip`);
+  editor.setStatus(`Exported ${Object.keys(files).length} files for ${profile}`);
 }

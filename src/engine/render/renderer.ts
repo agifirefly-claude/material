@@ -473,6 +473,11 @@ export class Renderer {
     return r.target!;
   }
 
+  /** the texture a sampler uniform refers to (a buffer, an image...), rendered if needed */
+  textureFor(ref: TextureRef): Target | null {
+    return this.resolve(ref, new Set()).target;
+  }
+
   /** pixels of a target, row 0 first (row 0 is uv.y = 0, the top of the image) */
   readPixels(t: Target): Float32Array {
     const gl = this.gl;

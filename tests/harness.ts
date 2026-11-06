@@ -106,3 +106,56 @@ window.renderExample = async (name: string, output: number, size: number) => {
   c.getContext("2d")!.putImageData(img, 0, 0);
   return c.toDataURL("image/png");
 };
+
+import { exportProfiles, planExport } from "../src/engine/export";
+import { newProject } from "../src/engine/loader";
+declare global {
+  interface Window {
+    runExports: () => Promise<unknown>;
+  }
+}
+/** every export profile of every material type, on an example graph (static) or a new project wired to noise (dynamic) */
+window.runExports = async () => {
+  await rp;
+  const out: Record<string, unknown> = {};
+  const data = await fetch(`/public/data/examples/bricks.json`).then((x) => x.json());
+  const projects: [string, GenGraph][] = [["bricks (material)", loadProject(data)]];
+  for (const t of ["material_dynamic", "material_unlit", "material_3d", "material_raymarching", "material_tesselated"]) {
+    const p = newProject(t);
+    const m = p.children[0];
+    const noise = createGen({ type: "perlin" })!;
+    p.addGenerator(noise);
+    // connect the first compatible input
+    const i = m.getInputDefs().findIndex((d) => ["f", "rgb", "rgba"].includes(d.type));
+    if (i >= 0) p.connectChildren(noise, 0, m, i);
+    projects.push([t, p]);
+  }
+  for (const [label, g] of projects) {
+    const m = g.children.find((c) => c instanceof GenMaterial) as GenMaterial;
+    for (const prof of exportProfiles(m)) {
+      try {
+        const files = planExport(m, prof, "test");
+        const leftovers = files.flatMap((f) => (f.kind === "text" ? [...f.text.matchAll(/\$(if|fi|else|begin_generate|end_generate|definitions|begin_buffers|uid\(|\(\w+:)[^\n]{0,40}/g)].map((x) => f.name + ": " + x[0]) : []));
+        out[`${label} / ${prof}`] = { files: files.map((f) => `${f.kind}:${f.name}`), leftovers };
+      } catch (e) {
+        out[`${label} / ${prof}`] = { error: String(e) };
+      }
+    }
+  }
+  return out;
+};
+declare global {
+  interface Window {
+    exportText: (type: string, profile: string, file: number) => Promise<string>;
+  }
+}
+window.exportText = async (type, profile, file) => {
+  await rp;
+  const p = newProject(type);
+  const m = p.children[0] as GenMaterial;
+  const noise = createGen({ type: "perlin" })!;
+  p.addGenerator(noise);
+  p.connectChildren(noise, 0, m, m.getInputDefs().findIndex((d) => ["f", "rgb", "rgba"].includes(d.type)));
+  const f = planExport(m, profile, "test")[file];
+  return f.kind === "text" ? f.name + "\n" + f.text : f.name;
+};

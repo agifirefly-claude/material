@@ -30,12 +30,15 @@ export const registry = {
   shaderFunctions: "",
   library: [] as LibraryItem[],
   aliases: {} as Record<string, string>,
+  /** export templates by file name (glsl_defs.tmpl, godot.tres.tmpl, ...) */
+  templates: {} as Record<string, string>,
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type NodeData = Record<string, any>;
 
-export function initRegistry(d: { nodes: Record<string, NodeData>; ioTypes: IoType[]; shaderFunctions: string; library?: { items: LibraryItem[]; aliases: Record<string, string> } }) {
+export function initRegistry(d: { nodes: Record<string, NodeData>; ioTypes: IoType[]; shaderFunctions: string; library?: { items: LibraryItem[]; aliases: Record<string, string> }; templates?: Record<string, string> }) {
+  if (d.templates) registry.templates = d.templates;
   registry.nodes = d.nodes;
   registry.ioTypes = {};
   for (const t of d.ioTypes) registry.ioTypes[t.name] = t;
@@ -47,13 +50,14 @@ export function initRegistry(d: { nodes: Record<string, NodeData>; ioTypes: IoTy
 }
 
 export async function loadRegistry(base = "data/"): Promise<void> {
-  const [nodes, ioTypes, shaderFunctions, library] = await Promise.all([
+  const [nodes, ioTypes, shaderFunctions, library, templates] = await Promise.all([
     fetch(base + "nodes.json").then((r) => r.json()),
     fetch(base + "io_types.json").then((r) => r.json()),
     fetch(base + "shader_functions.glsl").then((r) => r.text()),
     fetch(base + "library.json").then((r) => r.json()),
+    fetch(base + "templates.json").then((r) => r.json()),
   ]);
-  initRegistry({ nodes, ioTypes, shaderFunctions, library });
+  initRegistry({ nodes, ioTypes, shaderFunctions, library, templates });
 }
 
 /** MMLoader.get_predefined_global */

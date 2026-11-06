@@ -5,7 +5,9 @@ import { Library } from "./Library";
 import { Inspector } from "./Inspector";
 import { Preview2D } from "./Preview2D";
 import { Preview3D } from "./Preview3D";
-import { exportMaterialMaps, openExample, openProjectFile, parseProject, projectText, saveProject } from "./exporting";
+import { exportForEngine, exportMaterialMaps, openExample, openProjectFile, parseProject, projectText, saveProject } from "./exporting";
+import { exportProfiles } from "../engine/export";
+import { findMaterial } from "./materialMaps";
 import { newProject } from "../engine/loader";
 import { registry } from "../engine/registry";
 
@@ -59,6 +61,7 @@ function Examples({ onClose }: { onClose: () => void }) {
 export function App() {
   useEditor();
   const [examples, setExamples] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [view, setView] = useState<"2d" | "3d">("3d");
   const [toast, setToast] = useState("");
   useEffect(() => {
@@ -108,6 +111,7 @@ export function App() {
               <button onClick={() => (close(), setExamples(true))}>Examples…</button>
               <button onClick={() => (close(), saveProject())}>Save (.ptex)</button>
               <hr />
+              <button onClick={() => (close(), setExporting(true))}>Export for a game engine…</button>
               <button onClick={() => (close(), exportMaterialMaps())}>Export material maps (zip)</button>
               {[512, 1024, 2048, 4096].map((s) => (
                 <button key={s} onClick={() => (close(), exportMaterialMaps(s))}>
@@ -176,6 +180,7 @@ export function App() {
         <span>Based on Material Maker (MIT) by Rodolphe Suescun and contributors</span>
       </div>
       {examples && <Examples onClose={() => setExamples(false)} />}
+      {exporting && <ExportDialog onClose={() => setExporting(false)} />}
       {toast && <div className="toast">{toast}</div>}
     </div>
   );
@@ -191,4 +196,52 @@ export function restoreAutosave(): boolean {
   } catch {
     return false;
   }
+}
+
+function ExportDialog({ onClose }: { onClose: () => void }) {
+  const m = findMaterial(editor.root);
+  const profiles = m ? exportProfiles(m) : [];
+  const [size, setSize] = useState(m ? Math.round(Math.log2(m.imageSize)) : 10);
+  const [name, setName] = useState(editor.title);
+  return (
+    <div className="modal-back" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>Export for a game engine</h2>
+        {!m && <p>This project has no material node.</p>}
+        {m && (
+          <>
+            <p style={{ color: "var(--text2)", marginTop: 0 }}>
+              The export targets of “{m.getTypeName()}”, from Material Maker: each writes the texture maps and the engine's own material files into a zip.
+            </p>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+              File prefix <input type="text" value={name} onChange={(e) => setName(e.target.value.replace(/[^\w.-]/g, "_"))} />
+              Size
+              <select value={size} onChange={(e) => setSize(+e.target.value)}>
+                {[8, 9, 10, 11, 12, 13].map((i) => (
+                  <option key={i} value={i}>
+                    {2 ** i}×{2 ** i}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="examples">
+              {profiles.map((p) => (
+                <button
+                  key={p}
+                  onClick={() => {
+                    const t = editor.title;
+                    editor.title = name || t;
+                    exportForEngine(p, 2 ** size).finally(() => (editor.title = t));
+                    onClose();
+                  }}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
