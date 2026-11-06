@@ -12,6 +12,8 @@ import { ParamControl, paramLabel } from "./widgets/ParamControl";
 import { portColor, portLabel } from "./NodeView";
 import { GenSDF } from "../engine/gen/sdf";
 import { SdfEditor } from "./SdfEditor";
+import { openDialog } from "./dialogs/bus";
+import { t, tDesc, useLang } from "./i18n";
 
 const KW = /\b(if|else|for|while|return|const|uniform|in|out|inout|break|continue|true|false|discard)\b/;
 const TY = /\b(void|float|int|bool|[iub]?vec[234]|mat[234]|sampler2D)\b/;
@@ -50,6 +52,7 @@ function copy(text: string) {
 
 export function Inspector() {
   useEditor();
+  useLang();
   const g = editor.selected;
   const [tab, setTab] = useState<"params" | "info" | "code">("params");
   if (!g) return <GraphInfo graph={editor.graph} />;
@@ -64,7 +67,7 @@ export function Inspector() {
           ] as const
         ).map(([k, l]) => (
           <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>
-            {l}
+            {t(l)}
           </button>
         ))}
       </div>
@@ -80,9 +83,9 @@ export function Inspector() {
 function Header({ g }: { g: Gen }) {
   return (
     <div>
-      <div style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>{g.getTypeName()}</div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>{t(g.getTypeName())}</div>
       <div style={{ color: "var(--text3)" }}>
-        {g.name} · {g.model ? `library node “${g.model}”` : g.getType()}
+        {g.name} · {g.model ? t("library node “{0}”", g.model) : g.getType()}
         {g.getHierName() && g.getHierName() !== g.name ? ` · ${g.getHierName()}` : ""}
       </div>
     </div>
@@ -94,29 +97,36 @@ function Params({ g }: { g: Gen }) {
   return (
     <div className="insp">
       <Header g={g} />
-      {g.getDescription() && <div className="desc">{g.getDescription()}</div>}
-      {defs.length === 0 && <div style={{ color: "var(--text3)" }}>This node has no parameters.</div>}
+      {g.getDescription() && <div className="desc">{tDesc(g.getDescription())}</div>}
+      {(g instanceof GenShader || (g instanceof GenGraph && !(g instanceof GenMaterial))) && (
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+          <button onClick={() => openDialog("edit-node", g)}>{g instanceof GenMaterial ? t("Edit material…") : g instanceof GenGraph ? t("Edit graph…") : t("Edit node…")}</button>
+          {g.isTemplate() && <button onClick={() => (g.toggleEditable(), g.changed())} title={t("Make editable (detach from the library)")}>{t("Make editable")}</button>}
+          <button onClick={() => openDialog("add-to-library", g)}>{t("Add to a library…")}</button>
+        </div>
+      )}
+      {defs.length === 0 && <div style={{ color: "var(--text3)" }}>{t("This node has no parameters.")}</div>}
       {defs.map((d) => (
         <div key={d.name} className="row" style={["curve", "polygon", "polyline", "lattice", "splines", "pixels", "gradient"].includes(d.type) ? { gridTemplateColumns: "1fr" } : undefined}>
-          <label title={[d.name, d.shortdesc, d.longdesc].filter(Boolean).join("\n")}>{paramLabel(d)}</label>
+          <label title={[d.name, tDesc(d.shortdesc), tDesc(d.longdesc)].filter(Boolean).join("\n")}>{paramLabel(d)}</label>
           <ParamControl gen={g} def={d} />
         </div>
       ))}
       {g.hasRandomness() && (
         <div className="row">
-          <label>Seed</label>
+          <label>{t("Seed")}</label>
           <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
             <code>{g.seedValue.toFixed(5)}</code>
-            <button onClick={() => g.setSeed(Math.random())}>Randomize</button>
+            <button onClick={() => g.setSeed(Math.random())}>{t("Randomize")}</button>
             <label style={{ display: "flex", gap: 4 }}>
-              <input type="checkbox" checked={g.seedLocked} onChange={(e) => ((g.seedLocked = e.target.checked), g.changed())} /> locked
+              <input type="checkbox" checked={g.seedLocked} onChange={(e) => ((g.seedLocked = e.target.checked), g.changed())} /> {t("locked")}
             </label>
           </div>
         </div>
       )}
       {g instanceof GenShader && g.isGeneric() && (
         <div className="row">
-          <label>Generic inputs</label>
+          <label>{t("Generic inputs")}</label>
           <input type="number" min={1} max={16} value={g.genericSize} onChange={(e) => g.setGenericSize(Math.max(1, +e.target.value))} />
         </div>
       )}
@@ -125,7 +135,7 @@ function Params({ g }: { g: Gen }) {
       {g instanceof GenIOs && <IOsEditor ios={g} />}
       {g instanceof GenGraph && !(g instanceof GenMaterial) && (
         <button onClick={() => editor.enter(g.name)} className="primary">
-          Open this subgraph ({g.children.length} nodes)
+          {t("Open this subgraph ({0} nodes)", g.children.length)}
         </button>
       )}
     </div>
@@ -172,12 +182,12 @@ function Info({ g }: { g: Gen }) {
   return (
     <div className="insp">
       <Header g={g} />
-      {g.getDescription() && <div className="desc">{g.getDescription()}</div>}
-      <div className="sect">Inputs</div>
+      {g.getDescription() && <div className="desc">{tDesc(g.getDescription())}</div>}
+      <div className="sect">{t("Inputs")}</div>
       <PortTable ports={g.getInputDefs()} output={false} g={g} />
-      <div className="sect">{g instanceof GenMaterial ? "Texture maps" : "Outputs"}</div>
+      <div className="sect">{g instanceof GenMaterial ? t("Texture maps") : t("Outputs")}</div>
       <PortTable ports={outs} output g={g} />
-      <div className="sect">Upstream (what this node is computed from)</div>
+      <div className="sect">{t("Upstream (what this node is computed from)")}</div>
       <Upstream g={g} />
     </div>
   );
@@ -205,7 +215,7 @@ function Upstream({ g }: { g: Gen }) {
               selectAnywhere(s.generator);
             }}
           >
-            {s.generator.getTypeName()}
+            {t(s.generator.getTypeName())}
           </a>{" "}
           <span style={{ color: "var(--text3)" }}>
             {s.generator.getHierName() || s.generator.name}
@@ -257,7 +267,7 @@ function CodeTab({ g }: { g: Gen }) {
       {g instanceof GenGraph && !(g instanceof GenMaterial) && <GraphInfo graph={g} embedded />}
       {outs.length > 0 && (
         <>
-          <div className="sect">Generated GLSL</div>
+          <div className="sect">{t("Generated GLSL")}</div>
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
             <select value={o} onChange={(e) => setOut(+e.target.value)}>
               {outs.map((p, i) => (
@@ -280,7 +290,7 @@ function CodeTab({ g }: { g: Gen }) {
               <Code text={full ? generated.built.source : generated.built.body} max={520} />
               {generated.sc!.uniforms.length > 0 && (
                 <>
-                  <div className="sect">Uniforms (live values)</div>
+                  <div className="sect">{t("Uniforms (live values)")}</div>
                   <table>
                     <tbody>
                       {generated.built.uniforms.map((u) => (
@@ -319,16 +329,20 @@ function ShaderModel({ g }: { g: GenShader }) {
   return (
     <>
       <div className="sect" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <span style={{ flex: 1 }}>Shader model {g.model ? `(from the library: ${g.model})` : "(custom)"}</span>
+        <span style={{ flex: 1 }}>{t("Shader model")} {g.model ? t("(from the library: {0})", g.model) : t("(custom)")}</span>
         {!edit ? (
-          <button
-            onClick={() => {
-              setDraft(JSON.stringify(sm, null, 2));
-              setEdit(true);
-            }}
-          >
-            Edit
-          </button>
+          <>
+            <button onClick={() => openDialog("edit-node", g)}>{t("Edit…")}</button>
+            <button
+              title={t("Edit the model as JSON")}
+              onClick={() => {
+                setDraft(JSON.stringify(sm, null, 2));
+                setEdit(true);
+              }}
+            >
+              JSON
+            </button>
+          </>
         ) : (
           <>
             <button
@@ -460,11 +474,11 @@ function GraphInfo({ graph, embedded }: { graph: GenGraph; embedded?: boolean })
     <div className={embedded ? "" : "insp"}>
       {!embedded && (
         <>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>{graph === editor.root ? editor.title : graph.getTypeName()}</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>{graph === editor.root ? editor.title : t(graph.getTypeName())}</div>
           <div style={{ color: "var(--text3)" }}>Select a node to see its parameters, ports and generated code.</div>
         </>
       )}
-      <div className="sect">Graph analysis (including subgraphs)</div>
+      <div className="sect">{t("Graph analysis (including subgraphs)")}</div>
       <div>
         {stats.total} nodes · {stats.links} connections · {stats.subgraphs} subgraphs
       </div>
@@ -489,7 +503,7 @@ function RemoteEditor({ r }: { r: GenRemote }) {
   const target = graph?.getNode(node);
   return (
     <>
-      <div className="sect">Controls</div>
+      <div className="sect">{t("Controls")}</div>
       {r.widgets.map((w) => (
         <div key={w.name} style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <code>{w.name}</code>
@@ -542,7 +556,7 @@ function IOsEditor({ ios }: { ios: GenIOs }) {
   };
   return (
     <>
-      <div className="sect">{ios.name === "gen_inputs" ? "Subgraph inputs" : "Subgraph outputs"}</div>
+      <div className="sect">{ios.name === "gen_inputs" ? t("Subgraph inputs") : t("Subgraph outputs")}</div>
       {ios.ports.map((p, i) => (
         <div key={i} style={{ display: "flex", gap: 4 }}>
           <input type="text" value={p.name ?? ""} onChange={(e) => ((p.name = e.target.value), changed())} style={{ flex: 1 }} />

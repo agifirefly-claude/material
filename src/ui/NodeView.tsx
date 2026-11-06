@@ -9,6 +9,7 @@ import type { ShaderError } from "../engine/render/renderer";
 import { ParamControl, paramLabel } from "./widgets/ParamControl";
 import { PreviewCanvas } from "./PreviewCanvas";
 import { editor, useEditor } from "./store";
+import { t, tDesc, useLang } from "./i18n";
 
 export type NodeData = { gen: Gen };
 
@@ -24,13 +25,23 @@ export function nodeClass(g: Gen): string {
   return "shader";
 }
 
+/** Material Maker draws a bracket along ports of a group (group_size on the first port) */
+function groupClass(ports: PortDef[], i: number): string {
+  for (let s = i; s >= 0; s--) {
+    const n = ports[s].group_size ?? 0;
+    if (n > 1 && i < s + n) return " pg" + (i === s ? " pg-first" : "") + (i === s + n - 1 ? " pg-last" : "");
+  }
+  return "";
+}
+
 export function portLabel(p: PortDef, i: number, output: boolean): string {
-  if (output) return p.shortdesc ?? p.name ?? "";
-  return (p.label || p.shortdesc || p.name || `in ${i}`).replace(/^\d+:/, "");
+  if (output) return t(p.shortdesc ?? p.name ?? "");
+  return t((p.label || p.shortdesc || p.name || `in ${i}`).replace(/^\d+:/, ""));
 }
 
 function MMNodeInner({ id, data, selected }: NodeProps & { data: NodeData }) {
   useEditor();
+  useLang();
   const g = data.gen;
   const update = useUpdateNodeInternals();
   const [error, setError] = useState<string | null>(null);
@@ -63,9 +74,9 @@ function MMNodeInner({ id, data, selected }: NodeProps & { data: NodeData }) {
   const showPreview = outputs.length > 0 && !g.minimized && (editor.allPreviews ? g.extra.hidePreview !== true : g.preview >= 0);
   const isMaterial = g instanceof GenMaterial;
   return (
-    <div className={`mm-node ${nodeClass(g)}${selected ? " selected" : ""}${error ? " error" : ""}`} title={g.getDescription()}>
+    <div className={`mm-node ${nodeClass(g)}${selected ? " selected" : ""}${error ? " error" : ""}`} title={tDesc(g.getDescription())}>
       <div className="head">
-        <span>{g.getTypeName()}</span>
+        <span>{t(g.getTypeName())}</span>
         <span className="name">{g.name}</span>
         <span className="grow" />
         {g.hasRandomness() && <span className="badge" title="Uses a random seed">rnd</span>}
@@ -78,7 +89,7 @@ function MMNodeInner({ id, data, selected }: NodeProps & { data: NodeData }) {
       <div className="ports">
         <div>
           {inputs.map((p, i) => (
-            <div className="port in" key={"i" + i} title={p.longdesc ?? p.shortdesc ?? ""}>
+            <div className={"port in" + groupClass(inputs, i)} key={"i" + i} title={tDesc(p.longdesc ?? p.shortdesc ?? "")}>
               <Handle type="target" id={"i" + i} position={Position.Left} className={slotClass(p.type)} style={{ background: portColor(p.type), left: -6 }} />
               {portLabel(p, i, false)}
             </div>
@@ -86,7 +97,7 @@ function MMNodeInner({ id, data, selected }: NodeProps & { data: NodeData }) {
         </div>
         <div>
           {outputs.map((p, i) => (
-            <div className="port out" key={"o" + i} onDoubleClick={() => ((g.preview = g.preview === i ? -1 : i), editor.emit())}
+            <div className={"port out" + groupClass(outputs, i)} key={"o" + i} onDoubleClick={() => ((g.preview = g.preview === i ? -1 : i), editor.emit())}
               title={(p.longdesc ?? p.shortdesc ?? "") + "\nDouble click to preview this output"}>
               {portLabel(p, i, true)}
               {i === previewOutput && outputs.length > 1 && " ●"}

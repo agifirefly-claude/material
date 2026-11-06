@@ -558,6 +558,10 @@ export class GenShader extends Gen {
     const variables: Variables = {};
     variables.uv = uv;
     variables.time = "elapsed_time";
+    for (const [gp, v] of Object.entries(registry.globalParameters)) {
+      variables[gp] = "mm_global_" + gp;
+      rv.addUniform("mm_global_" + gp, "float", v);
+    }
     for (const [np, v] of Object.entries(this.parent?.getNamedParameters() ?? {})) {
       variables[np] = v.id;
       rv.addUniform(v.id, "float", v.value);

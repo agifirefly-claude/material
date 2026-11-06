@@ -71,4 +71,41 @@ for (const f of fs.readdirSync(exDir).sort()) {
   index.push(f.replace(/\.ptex$/, ""));
 }
 fs.writeFileSync(path.join(exOut, "index.json"), JSON.stringify(index));
+// translations: Material Maker's catalogs (msgid is the English text, as with Godot's TranslationServer)
+const locDir = path.join(mm, "locale");
+const locOut = path.join(out, "locale");
+fs.mkdirSync(locOut, { recursive: true });
+const catalogs = {};
+const unescape = (t) => t.replaceAll("\\n", "\n");
+for (const f of fs.readdirSync(locDir).sort()) {
+  const text = fs.readFileSync(path.join(locDir, f), "utf8");
+  if (f.endsWith(".csv")) {
+    const lines = text.split(/\r?\n/);
+    const head = lines[0];
+    if (!head.startsWith("id")) continue;
+    const sep = head[2];
+    const langs = head.split(sep);
+    for (const l of lines.slice(1)) {
+      const parts = l.split(sep);
+      if (parts.length !== langs.length) continue;
+      for (let i = 1; i < langs.length; i++) {
+        if (langs[i] === "en" || !parts[i]) continue;
+        (catalogs[langs[i]] ??= {})[unescape(parts[0])] = unescape(parts[i]);
+      }
+    }
+  } else if (f.endsWith(".po")) {
+    const lang = /"Language: (\w+)\\n"/.exec(text)?.[1] ?? f.replace(".po", "");
+    const cat = (catalogs[lang] ??= {});
+    const str = (block) => [...block.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => JSON.parse('"' + m[1] + '"')).join("");
+    for (const m of text.matchAll(/msgid((?:\s*"(?:[^"\\]|\\.)*")+)\s*msgstr((?:\s*"(?:[^"\\]|\\.)*")+)/g)) {
+      const id = str(m[1]),
+        tr = str(m[2]);
+      if (id && tr && !(id in cat)) cat[id] = tr;
+    }
+  }
+}
+for (const [lang, cat] of Object.entries(catalogs)) fs.writeFileSync(path.join(locOut, `${lang}.json`), JSON.stringify(cat));
+fs.writeFileSync(path.join(locOut, "index.json"), JSON.stringify(Object.keys(catalogs)));
+
+console.log(`locales: ${Object.entries(catalogs).map(([k, v]) => k + " " + Object.keys(v).length).join(", ")}`);
 console.log(`nodes: ${Object.keys(nodes).length}, io types: ${ioTypes.length}, library items: ${lib.lib.length}, examples: ${index.length}`);

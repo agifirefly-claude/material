@@ -12,6 +12,25 @@ import { raymarchPreviewSupported } from "../engine/preview3d";
 import { PreviewRay } from "./PreviewRay";
 import { newProject } from "../engine/loader";
 import { registry } from "../engine/registry";
+import { t, useLang } from "./i18n";
+import { DialogHost } from "./dialogs/AppDialogs";
+import { openDialog } from "./dialogs/bus";
+import { getPrefs, setPrefs, usePrefs } from "./prefs";
+import * as graphActions from "./graph/actions";
+
+/** asks before replacing a project with changes (confirm_close_project) */
+function confirmDiscard(): boolean {
+  return !getPrefs().confirmCloseProject || !editor.canUndo || confirm(t("Discard the changes to the current project?"));
+}
+
+/** a new project whose material has the preferred size */
+function newMaterial(type?: string) {
+  if (!confirmDiscard()) return;
+  const g = newProject(type);
+  const m = g.children[0];
+  if (m && m.getParameterDef("size")) m.parameters.size = getPrefs().defaultMaterialSize;
+  editor.setRoot(g, "untitled");
+}
 
 function Menu({ label, children }: { label: string; children: (close: () => void) => React.ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -40,13 +59,14 @@ function Examples({ onClose }: { onClose: () => void }) {
   return (
     <div className="modal-back" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Examples from Material Maker</h2>
-        <p style={{ color: "var(--text2)", marginTop: 0 }}>Each opens as a full node graph you can inspect: select nodes to see their parameters and generated code, double click subgraphs to open them.</p>
+        <h2>{t("Examples from Material Maker")}</h2>
+        <p style={{ color: "var(--text2)", marginTop: 0 }}>{t("Each opens as a full node graph you can inspect: select nodes to see their parameters and generated code, double click subgraphs to open them.")}</p>
         <div className="examples">
           {list.map((n) => (
             <button
               key={n}
               onClick={() => {
+                if (!confirmDiscard()) return;
                 openExample(n);
                 onClose();
               }}
@@ -62,6 +82,9 @@ function Examples({ onClose }: { onClose: () => void }) {
 
 export function App() {
   useEditor();
+  useLang();
+  const prefs = usePrefs();
+  const layout = prefs.layout;
   const [examples, setExamples] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [view, setView] = useState<"2d" | "3d">("3d");
@@ -76,6 +99,7 @@ export function App() {
 
   // autosave
   useEffect(() => {
+    if (!prefs.autosave) return;
     const t = setTimeout(() => {
       try {
         localStorage.setItem("material-pro:autosave", JSON.stringify({ title: editor.title, text: projectText() }));
@@ -84,7 +108,7 @@ export function App() {
       }
     }, 2000);
     return () => clearTimeout(t);
-  }, [editor.version]);
+  }, [editor.version, prefs.autosave]);
 
   const r = editor.renderer;
   const material = findMaterial(editor.root);
@@ -98,75 +122,115 @@ export function App() {
     <div className="app">
       <div className="topbar">
         <span className="brand">Material Pro</span>
-        <Menu label="File">
+        <Menu label={t("File")}>
           {(close) => (
             <>
-              <button onClick={() => (close(), editor.setRoot(newProject(), "untitled"))}>New material</button>
-              <div className="label">New with another material type</div>
+              <button onClick={() => (close(), newMaterial())}>{t("New material")}</button>
+              <div className="label">{t("New with another material type")}</div>
               {Object.entries(registry.nodes)
                 .filter(([, v]) => v.type === "material_export")
                 .map(([k, v]) => (
-                  <button key={k} onClick={() => (close(), editor.setRoot(newProject(k), "untitled"))}>
-                    {v.shader_model?.name ?? k}
+                  <button key={k} onClick={() => (close(), newMaterial(k))}>
+                    {t(v.shader_model?.name ?? k)}
                   </button>
                 ))}
               <hr />
-              <button onClick={() => (close(), openProjectFile())}>Open… (.ptex)</button>
-              <button onClick={() => (close(), setExamples(true))}>Examples…</button>
-              <button onClick={() => (close(), saveProject())}>Save (.ptex)</button>
+              <button onClick={() => (close(), confirmDiscard() && openProjectFile())}>{t("Open…")} (.ptex)</button>
+              <button onClick={() => (close(), setExamples(true))}>{t("Examples…")}</button>
+              <button onClick={() => (close(), saveProject())}>{t("Save")} (.ptex)</button>
               <hr />
-              <button onClick={() => (close(), setExporting(true))}>Export for a game engine…</button>
-              <button onClick={() => (close(), exportMaterialMaps())}>Export material maps (zip)</button>
+              <button onClick={() => (close(), setExporting(true))}>{t("Export for a game engine…")}</button>
+              <button onClick={() => (close(), exportMaterialMaps())}>{t("Export material maps (zip)")}</button>
               {[512, 1024, 2048, 4096].map((s) => (
                 <button key={s} onClick={() => (close(), exportMaterialMaps(s))}>
-                  Export maps at {s}×{s}
+                  {t("Export maps at {0}×{0}", s)}
                 </button>
               ))}
             </>
           )}
         </Menu>
-        <Menu label="Edit">
+        <Menu label={t("Edit")}>
           {(close) => (
             <>
               <button disabled={!editor.canUndo} onClick={() => (close(), editor.undo())}>
-                Undo (Ctrl+Z)
+                {t("Undo")} (Ctrl+Z)
               </button>
               <button disabled={!editor.canRedo} onClick={() => (close(), editor.redo())}>
-                Redo (Ctrl+Shift+Z)
+                {t("Redo")} (Ctrl+Shift+Z)
               </button>
               <hr />
               <button disabled={editor.selection.length === 0} onClick={() => (close(), groupSelection())}>
-                Group into subgraph (Ctrl+G)
+                {t("Group into subgraph")} (Ctrl+G)
               </button>
-              <div className="label">Copy Ctrl+C · Paste Ctrl+V · Duplicate Ctrl+D · Delete Del · Up a level Esc</div>
+              <button onClick={() => (close(), graphActions.selectAll())}>{t("Select all")} (Ctrl+A)</button>
+              <button onClick={() => (close(), graphActions.selectInvert())}>{t("Invert selection")} (Ctrl+I)</button>
+              <button onClick={() => (close(), window.dispatchEvent(new Event("mm-find-node")))}>{t("Find a node…")} (Ctrl+F)</button>
+              <button disabled={!editor.selected} onClick={() => (close(), openDialog("edit-node", editor.selected))}>
+                {t("Edit node…")} (Ctrl+E)
+              </button>
+              <button disabled={!editor.selected} onClick={() => (close(), openDialog("add-to-library", editor.selected))}>
+                {t("Add selection to a library…")}
+              </button>
+              <hr />
+              <button onClick={() => (close(), openDialog("preferences"))}>{t("Preferences…")}</button>
+              <div className="label">{t("Copy Ctrl+C · Paste Ctrl+V · Duplicate Ctrl+D · Delete Del · Up a level Esc")}</div>
             </>
           )}
         </Menu>
-        <button onClick={() => setExamples(true)}>Examples</button>
+        <Menu label={t("View")}>
+          {(close) => (
+            <>
+              <button onClick={() => (close(), openDialog("libraries"))}>{t("Libraries…")}</button>
+              <button onClick={() => (close(), openDialog("layouts"))}>{t("Panel layout…")}</button>
+              {Object.keys(prefs.layoutPresets).map((k) => (
+                <button key={k} onClick={() => (close(), setPrefs({ layout: { ...prefs.layoutPresets[k] } }))}>
+                  {t("Layout")}: {k}
+                </button>
+              ))}
+            </>
+          )}
+        </Menu>
+        <Menu label={t("Help")}>
+          {(close) => (
+            <>
+              <button onClick={() => (close(), window.open("https://rodzill4.github.io/material-maker/doc/", "_blank"))}>{t("User manual")}</button>
+              <button onClick={() => (close(), openDialog("about"))}>{t("About…")}</button>
+            </>
+          )}
+        </Menu>
+        <button onClick={() => setExamples(true)}>{t("Examples")}</button>
         <span className="title">{editor.title}</span>
         <span className="spacer" />
-        <button disabled={!editor.canUndo} onClick={() => editor.undo()} title="Undo">
+        <button onClick={() => openDialog("preferences")} title={t("Preferences")}>
+          ⚙
+        </button>
+        <button disabled={!editor.canUndo} onClick={() => editor.undo()} title={t("Undo")}>
           ↶
         </button>
-        <button disabled={!editor.canRedo} onClick={() => editor.redo()} title="Redo">
+        <button disabled={!editor.canRedo} onClick={() => editor.redo()} title={t("Redo")}>
           ↷
         </button>
       </div>
-      <div className="main">
-        <div className="panel left">
-          <Library />
-        </div>
+      <div
+        className="main"
+        style={{ gridTemplateColumns: `${layout.showLibrary ? layout.left + "px " : ""}1fr${layout.showRight ? " " + layout.right + "px" : ""}` }}
+      >
+        {layout.showLibrary && (
+          <div className="panel left">
+            <Library />
+          </div>
+        )}
         <GraphView />
-        <div className="panel right">
+        {layout.showRight && <div className="panel right">
           <div className="tabs">
             <button className={view === "3d" ? "on" : ""} onClick={() => setView("3d")}>
-              3D material
+              {t("3D material")}
             </button>
             <button className={view === "2d" ? "on" : ""} onClick={() => setView("2d")}>
-              2D node output
+              {t("2D node output")}
             </button>
           </div>
-          <div style={{ height: "42%", display: "flex", minHeight: 200 }}>
+          <div style={{ height: layout.previewHeight + "%", display: "flex", minHeight: 200 }}>
             <div style={{ display: view === "3d" && !rayMaterial ? "flex" : "none", flex: 1, minWidth: 0 }}>
               <Preview3D active={view === "3d" && !rayMaterial} />
             </div>
@@ -174,19 +238,20 @@ export function App() {
             {view === "2d" && <Preview2D />}
           </div>
           <Inspector />
-        </div>
+        </div>}
       </div>
       <div className="statusbar">
         <span>
-          {registry.library.length} library nodes · {Object.keys(registry.nodes).length} node definitions
+          {t("{0} library nodes · {1} node definitions", registry.library.length, Object.keys(registry.nodes).length)}
         </span>
-        <span>{r ? `${r.stats.programs} shaders compiled · ${r.stats.renders} renders` : "renderer not ready"}</span>
+        <span>{r ? t("{0} shaders compiled · {1} renders", r.stats.programs, r.stats.renders) : t("renderer not ready")}</span>
         <span style={{ flex: 1 }} />
-        <span>Based on Material Maker (MIT) by Rodolphe Suescun and contributors</span>
+        <span>{t("Based on Material Maker (MIT) by Rodolphe Suescun and contributors")}</span>
       </div>
       {examples && <Examples onClose={() => setExamples(false)} />}
       {exporting && <ExportDialog onClose={() => setExporting(false)} />}
       {toast && <div className="toast">{toast}</div>}
+      <DialogHost />
     </div>
   );
 }
@@ -211,16 +276,16 @@ function ExportDialog({ onClose }: { onClose: () => void }) {
   return (
     <div className="modal-back" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Export for a game engine</h2>
-        {!m && <p>This project has no material node.</p>}
+        <h2>{t("Export for a game engine")}</h2>
+        {!m && <p>{t("This project has no material node.")}</p>}
         {m && (
           <>
             <p style={{ color: "var(--text2)", marginTop: 0 }}>
-              The export targets of “{m.getTypeName()}”, from Material Maker: each writes the texture maps and the engine's own material files into a zip.
+              {t("The export targets of “{0}”, from Material Maker: each writes the texture maps and the engine's own material files into a zip.", t(m.getTypeName()))}
             </p>
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
-              File prefix <input type="text" value={name} onChange={(e) => setName(e.target.value.replace(/[^\w.-]/g, "_"))} />
-              Size
+              {t("File prefix")} <input type="text" value={name} onChange={(e) => setName(e.target.value.replace(/[^\w.-]/g, "_"))} />
+              {t("Size")}
               <select value={size} onChange={(e) => setSize(+e.target.value)}>
                 {[8, 9, 10, 11, 12, 13].map((i) => (
                   <option key={i} value={i}>
