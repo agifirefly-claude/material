@@ -4,6 +4,7 @@ import { factory, Gen, type Dict } from "./gen/base";
 import { GenShader } from "./gen/shader";
 import { GenComment, GenGraph, GenIOs, GenPassthrough, GenPortal, GenRemote, GenReroute, GenSwitch } from "./gen/graph";
 import { GenBuffer, GenImage, GenIterateBuffer, GenText } from "./gen/texture";
+import { GenSDF } from "./gen/sdf";
 import { GenAutoExport, GenDebug, GenExport, GenMaterial, GenMeshMap, GenWebcam } from "./gen/misc";
 
 type Ctor = new () => Gen;
@@ -23,6 +24,7 @@ const TYPES: Record<string, Ctor> = {
   debug: GenDebug,
   reroute: GenReroute,
   portal: GenPortal,
+  sdf: GenSDF,
 };
 
 function fixData(data: Dict): Dict {
@@ -43,6 +45,7 @@ export function createGen(data: Dict, fix = true): Gen | null {
     ["shader_model/preview_shader", GenMaterial],
     ["connections", GenGraph],
     ["nodes", GenGraph],
+    ["sdf_scene", GenSDF],
     ["shader_model", GenShader],
     ["model_data", GenShader],
     ["widgets", GenRemote],
@@ -61,7 +64,7 @@ export function createGen(data: Dict, fix = true): Gen | null {
     else if (registry.nodes[data.type]) {
       g = createGen(registry.nodes[data.type], false);
       if (g) g.model = data.type;
-    } else if (["brush", "sdf", "comment_line"].includes(data.type)) g = new GenPassthrough(data.type);
+    } else if (["brush", "comment_line"].includes(data.type)) g = new GenPassthrough(data.type);
     if (g) g.name = data.type;
   }
   if (!g) {
