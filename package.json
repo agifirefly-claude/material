@@ -1,0 +1,42 @@
+{
+  "name": "material-pro",
+  "version": "0.1.0",
+  "description": "A web port of Material Maker: procedural texture and material node editor in the browser",
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run data && tsc -p . && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p .",
+    "data": "node scripts/build-data.mjs",
+    "test": "vitest run",
+    "test:gl": "node tests/run-harness.mjs all"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agifirefly-wu/material-pro.git"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/agifirefly-wu/material-pro/issues"
+  },
+  "homepage": "https://github.com/agifirefly-wu/material-pro#readme",
+  "dependencies": {
+    "@xyflow/react": "^12.12.1",
+    "json5": "^2.2.3",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.187.0",
+    "@vitejs/plugin-react": "^6.2.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
+  },
+  "private": true,
+  "type": "module"
+}
