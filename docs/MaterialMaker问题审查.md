@@ -35,11 +35,11 @@
 
 | 决定 | 数量 |
 | --- | --- |
-| 已修复 | 8 |
+| 已修复 | 12 |
 | 本次实现 | 5 |
 | 增强已实现 | 17 |
 | 增强建议 | 11 |
-| 暂缓 | 38 |
+| 暂缓 | 34 |
 | 不做 | 45 |
 | 不适用 | 97 |
 | 合计 | 221 |
@@ -102,6 +102,16 @@ UE5 配置生成的 `bricks.py` 先 `sys.path.append('$(material_maker_path)/exp
 
 测试：`tests/unit/issue-review.test.ts`，检查两个节点的代码，并生成一次 Godot 4 ORM 导出，确认用的是 Godot 4 写法。节点编译 399/399、示例 43/43、导出 39/39 不变。
 
+### 3.6 渲染（[#758](https://github.com/RodZill4/material-maker/issues/758)、[#729](https://github.com/RodZill4/material-maker/issues/729)、[#1539](https://github.com/RodZill4/material-maker/issues/1539)、[#751](https://github.com/RodZill4/material-maker/issues/751)，中）
+
+随“渲染放进 Worker”一起完成，详见 [性能](性能.md)：
+
+- **图片还没加载完就导出，得到黑色贴图**（#758、#729）。`Renderer` 和 Worker 渲染服务都有 `imagesLoaded()`，所有导出路径（含抗锯齿导出）都先等图片加载完；Worker 里如果录制时图片还在加载，会重录一次。
+- **删除节点后渲染结果不释放**（#1539）。编辑停下 1 秒后，`prune()` 释放不在任何打开工程里的节点的缓冲、迭代缓冲、文字和图片渲染。
+- **重着色器卡死**（#751）。大于 1024² 的渲染分成 512² 的块；每组块之间检查 GPU 是否完成，超过时限（预览 8 秒、导出 20 秒）就停下并报“对这个尺寸来说太重”，界面不卡。迭代缓冲的迭代次数上限 1024。已经提交给 GPU 的一块无法中止，真正卡死的着色器会导致 GPU 重置，这时走上下文丢失的恢复流程。
+
+测试：`npm run test:worker`（导出前等图片：取到的颜色正确；反复增删缓冲节点 8 次，缓存大小不变）。
+
 ## 4. 适用但暂缓的
 
 ### 4.1 节点数据（交给数据维护方）
@@ -117,60 +127,15 @@ UE5 配置生成的 `bricks.py` 先 `sys.path.append('$(material_maker_path)/exp
 
 其余节点数据问题（[#849](https://github.com/RodZill4/material-maker/issues/849) Smooth Pixels 插值、[#745](https://github.com/RodZill4/material-maker/issues/745) Random Weave 伪影、[#739](https://github.com/RodZill4/material-maker/issues/739) Circle Splatter 实例 UV）与原版相同，价值低，暂缓。
 
-### 4.2 要改 `renderer.ts` 或 `store.ts`（本次不能改的文件）
-
-**图片还没加载完就导出，得到黑色贴图**（[#758](https://github.com/RodZill4/material-maker/issues/758)、[#729](https://github.com/RodZill4/material-maker/issues/729)，中）。`Renderer.imageTexture` 异步加载图片，加载完成前返回空纹理。打开工程后马上导出，图片节点那一路就是黑的。建议的补丁：
-
-```ts
-// src/engine/render/renderer.ts
-private images = new Map<string, { tex: Target | null; w: number; h: number; loading: boolean; error?: string; ready?: Promise<void> }>();
-// imageTexture() 里创建 entry 之后：
-let done!: () => void;
-entry.ready = new Promise<void>((res) => (done = res));
-// img.onload 和 img.onerror 的末尾各加一句 done();
-
-/** resolves once every image a render asked for has loaded or failed */
-async imagesLoaded(): Promise<void> {
-  for (;;) {
-    const pending = [...this.images.values()].filter((e) => e.loading && e.ready).map((e) => e.ready!);
-    if (!pending.length) return;
-    await Promise.all(pending);
-  }
-}
-```
-
-然后 `exportForEngine`、`exportMaterialMaps`、m3e 导出在渲染每张贴图前先 `await r.imagesLoaded()`；如果等待前已经渲染过，就重渲一次。
-
-**删除节点后缓冲纹理不释放**（[#1539](https://github.com/RodZill4/material-maker/issues/1539)，中）。缓冲、迭代缓冲和图片节点的渲染结果按 `<genName>_tex`、`<genName>_it_tex` 存进 `Renderer.cache`，节点删掉以后没有人调用 `forget`，只有整体 `clearCache()` 才会释放。反复增删 Make Tileable Square 这类带缓冲的节点，显存会一直涨。建议：
-
-```ts
-// src/engine/render/renderer.ts
-/** frees the renders of buffer, iterate buffer and image nodes that are in no open graph */
-pruneNodes(alive: Set<string>): void {
-  for (const [key, c] of this.cache) {
-    const m = /^(.+?)_(it_)?tex$/.exec(key);
-    if (m && !alive.has(m[1])) {
-      this.deleteTarget(c.target);
-      this.cache.delete(key);
-    }
-  }
-}
-// src/ui/store.ts：图结构变化（增删节点、切换或关闭工程）后，
-// 收集所有打开工程里各节点的 genName，调用 renderer.pruneNodes(names)。
-```
-
-`loopTextures`（迭代缓冲的中间纹理）的键也要按同样的方式清理，改时请一并确认它的命名。
-
-### 4.3 需要在真实引擎里验证
+### 4.2 需要在真实引擎里验证
 
 - **Godot 4 ORM**（[#1205](https://github.com/RodZill4/material-maker/issues/1205)）：模板已改为 Godot 4 写法（见 3.5），还需要在本地 Godot 4 里打开确认 `orm_texture` 能读到。
 - **Godot 4 动态材质数组初始化**（[#732](https://github.com/RodZill4/material-maker/issues/732)）、**UE5 动态材质的 HLSL 错误**（[#760](https://github.com/RodZill4/material-maker/issues/760)）：生成的代码与原版相同，需要引擎才能确认。
 
-### 4.4 其他
+### 4.3 其他
 
 - [#645](https://github.com/RodZill4/material-maker/issues/645)：canvas 存的是预乘 alpha，带透明度的图导出 PNG 时，低 alpha 处的颜色会损失精度。要换成自己的 PNG 编码器，和 16 位 PNG（[#1309](https://github.com/RodZill4/material-maker/issues/1309)、[#931](https://github.com/RodZill4/material-maker/issues/931)）一起做。
 - [#1173](https://github.com/RodZill4/material-maker/issues/1173)、[#1277](https://github.com/RodZill4/material-maker/issues/1277)、[#1124](https://github.com/RodZill4/material-maker/issues/1124)：都与原版跨帧计算的迭代缓冲有关。本项目一次算完，多半不受影响，但还没有专门测，留给 UI 回归测试。
-- [#751](https://github.com/RodZill4/material-maker/issues/751)：重着色器卡住 GPU，由“渲染放进 Worker、防卡死”的任务处理。
 
 ## 5. 增强建议
 
@@ -196,7 +161,7 @@ pruneNodes(alive: Set<string>): void {
 | [1577](https://github.com/RodZill4/material-maker/issues/1577) | ptex import addon is no longer up to date with godot or project | 缺陷 | 否 | 无 | 不适用 | Godot 导入插件 |
 | [1554](https://github.com/RodZill4/material-maker/issues/1554) | Material Alignment in Preview is Off by Half-Pixel | 缺陷 | 否 | 低 | 不适用 | 3D 预览用 three.js，贴图采样与原版不同 |
 | [1540](https://github.com/RodZill4/material-maker/issues/1540) | corrupted size vs. prev_size in fastbins : custom mesh not visible (obj/glb) | 缺陷 | 否 | 无 | 不适用 | Godot 模型加载崩溃；我们用 three.js 加载器 |
-| [1539](https://github.com/RodZill4/material-maker/issues/1539) | System runs out of memory when trying to compute nodegraph with multiple Make Tilable Square nodes | 缺陷 | 不明 | 中 | 暂缓 | 缓存不随节点删除释放的可能性存在；修复要改 `renderer.ts`（不在本次可改范围），补丁见下文 |
+| [1539](https://github.com/RodZill4/material-maker/issues/1539) | System runs out of memory when trying to compute nodegraph with multiple Make Tilable Square nodes | 缺陷 | 不明 | 中 | 已修复 | 删除节点后缓冲等渲染结果不释放；现在编辑停下后释放（3.6） |
 | [1517](https://github.com/RodZill4/material-maker/issues/1517) | Crash When Changing a Tab when Windows File Manager is Opened while Importing and Exporting | 缺陷 | 否 | 无 | 不适用 | Windows 原生文件对话框 |
 | [1506](https://github.com/RodZill4/material-maker/issues/1506) | Segmentation fault on export on linux | 缺陷 | 否 | 无 | 不适用 | Linux 导出段错误（Godot） |
 | [1501](https://github.com/RodZill4/material-maker/issues/1501) | Wrong project filename on Save or Save As... | 缺陷 | 否 | 无 | 不适用 | 原版保存对话框逻辑；浏览器下载用工程标题 |
@@ -266,10 +231,10 @@ pruneNodes(alive: Set<string>): void {
 | [772](https://github.com/RodZill4/material-maker/issues/772) | Node float parameters not being editable on left click | 缺陷 | 否 | 无 | 不适用 | Godot 输入 |
 | [762](https://github.com/RodZill4/material-maker/issues/762) | Two-finger scroll on Mac in Preview3D doesn't zoom in/out | 缺陷 | 不明 | 低 | 暂缓 | Mac 触控板双指缩放 3D 预览：three.js 控件支持滚轮，未在 Mac 上验证 |
 | [760](https://github.com/RodZill4/material-maker/issues/760) | Unreal Engine 5.4.4 import errors | 缺陷 | 是 | 高 | 已修复 | 同 #615（缺 mm.py）。另报的 HLSL 关键字 `char` 和未声明变量需在 UE5 中验证，暂缓 |
-| [758](https://github.com/RodZill4/material-maker/issues/758) | Albedo is black on export | 缺陷 | 不明 | 中 | 暂缓 | 图片还没加载完就导出会得到黑图；修复要改 `renderer.ts`，补丁见下文 |
+| [758](https://github.com/RodZill4/material-maker/issues/758) | Albedo is black on export | 缺陷 | 不明 | 中 | 已修复 | 图片还没加载完就导出会得到黑图；现在导出先等图片加载完（3.6） |
 | [754](https://github.com/RodZill4/material-maker/issues/754) | Model preview rotation loop | 增强 | 否 | 无 | 增强已实现 | 3D 预览自动旋转已有 |
 | [752](https://github.com/RodZill4/material-maker/issues/752) | Exported images from the preview of a grayscale/float outputting node only have a red channel set | 缺陷 | 否 | 无 | 不适用 | 灰度节点导出：我们按预览着色器转成 RGB 再写 |
-| [751](https://github.com/RodZill4/material-maker/issues/751) | Skewed Brick Causes Lockup and Crash When Added | 缺陷 | 不明 | 中 | 暂缓 | Skewed Bricks 卡死：重着色器卡住 GPU 的问题由“渲染放进 Worker、防卡死”任务处理 |
+| [751](https://github.com/RodZill4/material-maker/issues/751) | Skewed Brick Causes Lockup and Crash When Added | 缺陷 | 不明 | 中 | 已修复 | 重着色器卡住界面；现在分块渲染、超时停止（3.6） |
 | [750](https://github.com/RodZill4/material-maker/issues/750) | Advanced Tiler Should Have a Value Control Input | 增强 | 否 | 低 | 不做 | 节点功能请求 |
 | [746](https://github.com/RodZill4/material-maker/issues/746) | Make non-editable nodes not display edit icon | 增强 | 否 | 低 | 不做 | 界面细节，收益小 |
 | [745](https://github.com/RodZill4/material-maker/issues/745) | Random Weave node has artifacts on 1.4a | 缺陷 | 是 | 低 | 暂缓 | Random Weave 伪影，节点数据问题，与原版相同 |
@@ -278,7 +243,7 @@ pruneNodes(alive: Set<string>): void {
 | [739](https://github.com/RodZill4/material-maker/issues/739) | Circle Splatter's Instance UV Outputs Quads Sometimes | 缺陷 | 是 | 低 | 暂缓 | Circle Splatter 实例 UV，节点数据问题，与原版相同 |
 | [732](https://github.com/RodZill4/material-maker/issues/732) | Exporting a dynamic PBR material with colorize node having errors when exported | 缺陷 | 不明 | 中 | 暂缓 | Godot 4 动态材质的数组初始化，需在真实 Godot 4 里验证 |
 | [730](https://github.com/RodZill4/material-maker/issues/730) | Random nodes will "jitter" on preview2d in some occasions | 缺陷 | 不明 | 低 | 暂缓 | 随机节点在预览里抖动，未复现 |
-| [729](https://github.com/RodZill4/material-maker/issues/729) | Export a black albedo map | 缺陷 | 不明 | 中 | 暂缓 | 同 #758 |
+| [729](https://github.com/RodZill4/material-maker/issues/729) | Export a black albedo map | 缺陷 | 不明 | 中 | 已修复 | 同 #758，已修复（3.6） |
 | [724](https://github.com/RodZill4/material-maker/issues/724) | Export bug | 缺陷 | 不明 | 低 | 暂缓 | 描述不足 |
 | [722](https://github.com/RodZill4/material-maker/issues/722) | Blur and Fast Blur is not tileable in 1.4 | 缺陷 | 不明 | 中 | 暂缓 | 模糊节点平铺：要接图片才能测，留给平铺审计脚本的后续版本 |
 | [720](https://github.com/RodZill4/material-maker/issues/720) | Add new editor environment for 3D preview | 缺陷 | 否 | 无 | 不适用 | 原版环境编辑器 |

@@ -63,6 +63,9 @@ jobs:
       - name: Command line
         run: npm run test:cli 2>&1 | tee "$LOGS/cli.log"
 
+      - name: Worker rendering
+        run: npm run test:worker 2>&1 | tee "$LOGS/worker.log"
+
       - name: UI regression
         run: npm run test:ui 2>&1 | tee "$LOGS/ui.log"
 
