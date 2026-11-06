@@ -41,6 +41,8 @@ export interface DrawError {
   program: string;
   message: string;
   log: string;
+  /** the fragment shader as it was compiled (ShaderError.source) */
+  source?: string;
 }
 
 export interface BatchStats {

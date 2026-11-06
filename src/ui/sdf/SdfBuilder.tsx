@@ -61,11 +61,16 @@ export function SdfBuilder({ gen, initialSel, onClose }: { gen: GenSDF; initialS
   };
 
   // draw the preview whenever something changes
+  // in the render worker where the browser can; one render at a time, the newest request wins
+  const busy = useRef<Promise<unknown>>(Promise.resolve());
   useEffect(() => {
-    const r = editor.renderer;
+    const r = editor.renders;
     const c = canvas.current;
     if (!r || !c) return;
-    const id = requestAnimationFrame(() => {
+    let stale = false;
+    const id = requestAnimationFrame(async () => {
+      await busy.current;
+      if (stale) return;
       try {
         preview.nodeParameters = structuredClone(nodeParams);
         preview.parameters = {};
@@ -77,16 +82,20 @@ export function SdfBuilder({ gen, initialSel, onClose }: { gen: GenSDF; initialS
           return;
         }
         const sc = is3d ? sdfPreview3D(preview, cam, sel ?? 0) : sdfPreview2D(preview, view, sel ?? 0);
-        const res = r.renderKeyed("sdf-builder", sc, SIZE, false);
-        setError(res.error ? res.error.message : "");
-        if (res.target) r.present(res.target, c.getContext("2d")!, false);
+        const job = r.previews([{ key: "sdf-builder", sc, size: SIZE, preview: false, ctx: c.getContext("2d")!, checker: false, force: true }]);
+        busy.current = job.catch(() => null);
+        const [res] = await job;
+        if (!stale) setError(res.error ? res.error.message : "");
       } catch (e) {
         setError(String(e));
       }
     });
-    return () => cancelAnimationFrame(id);
+    return () => {
+      stale = true;
+      cancelAnimationFrame(id);
+    };
   }, [scene, nodeParams, values, view, cam, sel, is3d, preview]);
-  useEffect(() => () => editor.renderer?.forget("sdf-builder"), []);
+  useEffect(() => () => editor.renders?.forget("sdf-builder"), []);
 
   const apply = () => {
     gen.nodeParameters = structuredClone(nodeParams);

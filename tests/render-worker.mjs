@@ -35,6 +35,12 @@ if (want("compare")) {
   const p = await page.evaluate(() => window.comparePreviews("bricks", 64));
   check(p.worst <= 1, `bricks previews: ${p.jobs} ImageBitmaps, differ by at most ${p.worst}/255`);
 }
+if (want("moved")) {
+  // renders that used to run on the page only (TAA, the raymarching preview, the SDF builder, library icons, the tone
+  // histogram, frames that are not square, a material's buffers): the worker draws what the page's fallback draws
+  const r = await page.evaluate(() => window.moved());
+  for (const [k, v] of Object.entries(r)) check(v.n > 0 && v.worst <= 1, `${k}: ${v.n} renders, worker vs page differ by at most ${+v.worst.toFixed(3)}/255${v.note ? " (" + v.note + ")" : ""}`);
+}
 if (want("heavy")) {
   const w = await page.evaluate(() => window.heavy("worker", 2048, 300));
   const m = await page.evaluate(() => window.heavy("main", 2048, 300));

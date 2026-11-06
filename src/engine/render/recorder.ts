@@ -3,7 +3,8 @@
  * Its targets are numbers that name the worker's textures. Pictures are decoded on the page, where the DOM is
  * (createImageBitmap decodes off the main thread), and sent to the worker as ImageBitmaps. */
 import { HostBase } from "./base";
-import type { BuiltShader } from "./shader-source";
+import { buildFragmentShader, type BuiltShader } from "./shader-source";
+import type { ShaderCode, TextureRef } from "../shader-code";
 import type { GenImage } from "../gen/texture";
 import { pow2, type PictureSource } from "./sources";
 import { fnv, ShaderError, type Resolved, type Target } from "./types";
@@ -65,8 +66,26 @@ export class Recorder extends HostBase {
     return this.link.pictures;
   }
 
-  protected mainOnly<T>(what: string): T {
+  protected mainOnly<T>(what: string, get?: () => T): T {
+    // a texture the caller holds is fine when it is one of the worker's (a RenderSession's target)
+    if (what === "texture" && get) {
+      const r = get() as unknown as Resolved;
+      if (r.target && typeof (r.target as RemoteTarget).id === "number") return r as unknown as T;
+    }
     throw new MainOnlyError(what);
+  }
+
+  /** draws a shader into a target the caller owns, without caching; `add` sums onto what is there (Renderer.renderInto) */
+  renderInto(sc: ShaderCode, target: Target, add = false): void {
+    const built = buildFragmentShader(sc);
+    const deps = this.resolveUniforms(built.uniforms, new Set());
+    this.lastKey = "";
+    this.draw(built, deps.values, target, add);
+  }
+
+  /** the texture a sampler uniform refers to (a buffer, an image...), recorded if needed (Renderer.textureFor) */
+  textureFor(ref: TextureRef): Target | null {
+    return this.resolve(ref, new Set()).target;
   }
 
   createTarget(size: number, f32 = false, mipmap = false, height = size): Target {
@@ -135,7 +154,7 @@ export class Recorder extends HostBase {
   /** files the worker's compile errors under the keys that rendered them, so they show as Renderer's would */
   applyErrors(errors: DrawError[]): void {
     for (const e of errors) {
-      const err = new ShaderError(e.message, "", e.log);
+      const err = new ShaderError(e.message, e.source ?? "", e.log);
       this.link.failed.set(e.program, err);
       let key = this.drawKeys.get(e.target);
       for (const [k, c] of this.cache) if ((c.target as RemoteTarget).id === e.target) key = k;

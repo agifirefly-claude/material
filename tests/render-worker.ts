@@ -306,3 +306,237 @@ window.prune = async () => {
   }
   return { sizes, mainSizes };
 };
+
+/* ---------- renders that used to run on the page only: each by the worker and by the page's fallback ---------- */
+import { findMaterial } from "../src/engine/materialMaps";
+import { raymarchPreview } from "../src/engine/preview3d";
+import { GenSDF } from "../src/engine/gen/sdf";
+import { sdfPreview2D, sdfPreview3D } from "../src/engine/sdf/preview";
+import { newSceneItem, type SdfScene } from "../src/engine/sdf/builder";
+import { processShader, processConditionals, connectionsAndParametersContext } from "../src/engine/export";
+import { withPreview } from "../src/engine/render/shader-source";
+import { ShaderError } from "../src/engine/render/types";
+import { TaaRender, sessionFrame } from "../src/ui/preview2d/taa";
+import { imageShaderCode } from "../src/ui/preview2d/view";
+import type { TextureRef } from "../src/engine/shader-code";
+import { newProject } from "../src/engine/loader";
+
+type Moved = { n: number; worst: number; note?: string };
+declare global {
+  interface Window {
+    moved: () => Promise<Record<string, Moved>>;
+  }
+}
+
+/** a seeded random generator (mulberry32), so both TAA runs jitter alike */
+function seeded(seed: number) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+/** the largest difference of two float pictures, in 1/255 (clamped as a file would store them) */
+const fdiff = (a: Float32Array, b: Float32Array) => {
+  let w = 0;
+  for (let i = 0; i < a.length; i++) w = Math.max(w, Math.abs(Math.min(1, Math.max(0, a[i])) - Math.min(1, Math.max(0, b[i]))) * 255);
+  return w;
+};
+const ctx2d = (w: number, h = w) => {
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  return c.getContext("2d", { willReadFrequently: true })!;
+};
+const pixelsOf = (c: CanvasRenderingContext2D) => c.getImageData(0, 0, c.canvas.width, c.canvas.height).data;
+
+/** each render moved to the worker against the same render on the page (the fallback: a RenderService without a
+ *  worker, which draws with the page's Renderer) */
+window.moved = async () => {
+  await window.ready;
+  const r = await main;
+  const page = new RenderService(r);
+  const out: Record<string, Moved> = {};
+  /** for each session: whether it ran where it was asked to (the worker, or the page) */
+  let where: boolean[] = [];
+  const graphOf = async (name: string) => loadProject(await fetch(`/public/data/examples/${name}.json`).then((x) => x.json()));
+  r.time = svc.time = page.time = 0;
+
+  // keyed previews (the raymarching 3D preview, the SDF builder): RenderService.previews in both
+  const previewPair = async (key: string, sc: ShaderCode, size: number) => {
+    const a = ctx2d(size),
+      b = ctx2d(size);
+    const [ra] = await svc.previews([{ key, sc, size, preview: false, ctx: a, checker: false, force: true }]);
+    const [rb] = await page.previews([{ key, sc, size, preview: false, ctx: b, checker: false, force: true }]);
+    svc.forget(key);
+    page.forget(key);
+    if (ra.error || rb.error) throw new Error(String(ra.error?.log || rb.error?.log));
+    if (!ra.drawn || !rb.drawn) throw new Error("not drawn");
+    return diff(pixelsOf(a), pixelsOf(b));
+  };
+  {
+    let worst = 0,
+      n = 0;
+    for (const name of ["raymarching", "marble", "3d_shapes"]) {
+      const m = findMaterial(await graphOf(name));
+      if (!m) continue;
+      for (const shape of ["sphere", "cube"] as const) {
+        try {
+          worst = Math.max(worst, await previewPair("3d-ray", raymarchPreview(m, { yaw: 0.6, pitch: -0.35, dist: 2.2 }, shape), 96));
+          n++;
+        } catch (e) {
+          // a material this preview cannot compile is not this test's business
+          console.log("skipped", name, shape, String(e).slice(0, 80));
+        }
+      }
+    }
+    out["raymarching 3D preview"] = { n, worst };
+  }
+  {
+    let idx = 0;
+    const item = (type: string, children: SdfScene[] = [], params: Record<string, unknown> = {}): SdfScene => {
+      const s = newSceneItem(type, ++idx);
+      s.children = children;
+      Object.assign(s.parameters, params);
+      return s;
+    };
+    const g = new GenSDF();
+    g.editor = true;
+    new GenGraph().addGenerator(g);
+    let worst = 0;
+    g.setSdfScene([item("Union", [item("Circle", [], { radius: 0.25 }), item("Box", [], { position_x: 0.2, size_x: 0.2 })])]);
+    worst = Math.max(worst, await previewPair("sdf-builder", sdfPreview2D(g, { center: { x: 0.5, y: 0.5 }, scale: 1.2, style: 0 }, 0), 96));
+    g.setSdfScene([item("Union3D", [item("Sphere", [], { radius: 0.3 }), item("Box3D", [], { position_x: 0.3 })])]);
+    worst = Math.max(worst, await previewPair("sdf-builder", sdfPreview3D(g, { yaw: 0.5, pitch: -0.3, dist: 3, target: [0, 0, 0] }, 0), 96));
+    out["SDF builder preview"] = { n: 2, worst };
+  }
+
+  // library icons and the tone histogram: images and floats of the render service
+  {
+    const jobs = (await exampleJobs("bricks")).slice(0, 16);
+    let worst = 0,
+      hist = 0;
+    for (const j of jobs) {
+      const a = await svc.image(j.sc, 64),
+        b = await page.image(j.sc, 64);
+      worst = Math.max(worst, diff(a.data, b.data));
+      const fa = await svc.floats(withPreview(j.sc, 128), 128, { preview: false }),
+        fb = await page.floats(withPreview(j.sc, 128), 128, { preview: false });
+      hist = Math.max(hist, fdiff(fa, fb));
+    }
+    out["library icons"] = { n: jobs.length, worst };
+    out["tone histogram"] = { n: jobs.length, worst: hist };
+  }
+
+  // frames that are not square, in sessions
+  {
+    const graph = await graphOf("marble");
+    const gens = allNodes(graph)
+      .filter((g) => g.getOutputDefs().length)
+      .slice(0, 12);
+    let worst = 0,
+      n = 0;
+    for (const g of gens) {
+      const frame = (onPage: boolean) => svc.withSession((s) => (where.push(s.onWorker !== onPage), sessionFrame(s, imageShaderCode(g, 0, 96), s.createTarget(96, 48), 0.25)), { onPage });
+      try {
+        const a = await frame(false),
+          b = await frame(true);
+        worst = Math.max(worst, diff(a.data, b.data));
+        n++;
+      } catch (e) {
+        if (!(e instanceof ShaderError)) throw e;
+      }
+    }
+    out["non-square animation frames"] = { n, worst: where.every(Boolean) ? worst : 255, note: where.every(Boolean) ? "" : "not worker against page" };
+  }
+
+  // TAA: the same seeded jitter, accumulated in the worker and on the page
+  {
+    const m = findMaterial(await graphOf("marble"))!;
+    const settings = [
+      { gamma: 1, denoise: 0 as const, radius: 1, sigma: 1, kSigma: 1, threshold: 0.1 },
+      { gamma: 2.2, denoise: 1 as const, radius: 2, sigma: 1, kSigma: 1, threshold: 0.1 },
+      { gamma: 1, denoise: 2 as const, radius: 1, sigma: 1.5, kSigma: 2, threshold: 0.1 },
+    ];
+    const run = async (onPage: boolean) => {
+      const t = new TaaRender(svc.session({ onPage }), m, 0, 80, 56, seeded(7));
+      for (let i = 0; i < 24; i++) t.step(0.5);
+      const res: Float32Array[] = [];
+      for (const st of settings) res.push((await t.pixels(st, true)) as Float32Array);
+      const c = ctx2d(80, 56);
+      await t.show(settings[0], c);
+      const bytes = (await t.pixels(settings[0], false)) as Uint8ClampedArray;
+      const onWorker = t.session.onWorker;
+      t.dispose();
+      return { res, shown: pixelsOf(c), bytes, onWorker };
+    };
+    const a = await run(false),
+      b = await run(true);
+    let worst = 0;
+    a.res.forEach((x, i) => (worst = Math.max(worst, fdiff(x, b.res[i]))));
+    out["TAA render (floats, 3 denoise modes)"] = { n: settings.length, worst: a.onWorker && !b.onWorker ? worst : 255, note: a.onWorker && !b.onWorker ? "" : "not worker against page" };
+    out["TAA render (shown, PNG)"] = { n: 2, worst: Math.max(diff(a.shown, b.shown), diff(a.bytes, b.bytes)) };
+  }
+
+  // a material's own buffers, as the engine exports read them
+  where = [];
+  {
+    let worst = 0,
+      n = 0;
+    // a dynamic material whose albedo is a Buffer of a noise: its export writes that buffer as a file
+    const dynamic = () => {
+      const p = newProject("material_dynamic");
+      const m = p.children[0] as GenMaterial;
+      const noise = createGen({ type: "fbm2" })!;
+      const buf = createGen({ type: "buffer" })!;
+      p.addGenerator(noise);
+      p.addGenerator(buf);
+      p.connectChildren(noise, 0, buf, 0);
+      p.connectChildren(buf, 0, m, m.getInputDefs().findIndex((d) => d.name === "albedo_tex"));
+      return p;
+    };
+    for (const name of ["dynamic", "raymarching", "planet"]) {
+      const m = findMaterial(name === "dynamic" ? dynamic() : await graphOf(name));
+      if (!m) continue;
+      const code = processShader(m, processConditionals(String(m.shaderModel.preview_shader ?? ""), connectionsAndParametersContext(m)));
+      for (const u of code.shaderCode.uniforms) {
+        if (u.type !== "sampler2D" || !u.value) continue;
+        const read = (onPage: boolean, floats: boolean) =>
+          svc.withSession(
+            async (s) => {
+              where.push(s.onWorker !== onPage);
+              const t = s.textureFor(u.value as TextureRef);
+              if (!t) return null;
+              const i = s.read(t, floats);
+              return (await s.flush())[i];
+            },
+            { onPage },
+          );
+        const a = await read(false, false),
+          b = await read(true, false);
+        if (!a || !b) continue;
+        const fa = await read(false, true),
+          fb = await read(true, true);
+        worst = Math.max(worst, diff(a as Uint8ClampedArray, b as Uint8ClampedArray), fdiff(fa as Float32Array, fb as Float32Array));
+        n++;
+      }
+    }
+    out["engine export buffers"] = { n, worst: n && where.every(Boolean) ? worst : 255, note: !n ? "no buffers found" : where.every(Boolean) ? "" : "not worker against page" };
+  }
+
+  // a shader that does not compile: the worker's error carries the source, as the page's does
+  {
+    const bad = new ShaderCode();
+    bad.defs = "vec4 broken(vec2 uv) { return vec4(nope); }\n";
+    bad.outputType = "rgba";
+    bad.outputValues = { rgba: "broken(uv)" };
+    const [ra] = await svc.previews([{ key: "bad", sc: bad, size: 16, preview: false, ctx: ctx2d(16), force: true }]);
+    const [rb] = await page.previews([{ key: "bad", sc: bad, size: 16, preview: false, ctx: ctx2d(16), force: true }]);
+    const ok = !!ra.error && !!rb.error && ra.error.source.length > 0 && ra.error.source === rb.error.source;
+    out["compile errors carry the source"] = { n: 1, worst: ok ? 0 : 255, note: `worker ${ra.error?.source.length ?? "none"} chars, page ${rb.error?.source.length ?? "none"} chars` };
+    svc.forget("bad");
+    page.forget("bad");
+  }
+  return out;
+};
