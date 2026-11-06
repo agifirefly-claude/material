@@ -229,7 +229,10 @@ function TaaDialog({ gen, output, onClose }: { gen: Gen; output: number; onClose
         if (t.session.onWorker) for (let i = 0; i < n && t.iteration < 4096; i++) t.step();
         // on the page: as many samples as fit in a few milliseconds, so the page stays responsive
         else
-          do t.step();
+          do {
+            t.step();
+            t.session.sync();
+          }
           while (performance.now() - start < 8 && t.iteration < 4096);
         const show = Math.floor(t.iteration / 16) !== Math.floor(before / 16) || t.iteration <= 4 || t.iteration >= 4096;
         if (show) await t.show(settings.current, canvas.current!.getContext("2d")!);

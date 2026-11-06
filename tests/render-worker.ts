@@ -580,7 +580,10 @@ window.taaLoop = async (onPage, size, ms) => {
     const before = t.iteration;
     if (t.session.onWorker) for (let i = 0; i < n; i++) t.step();
     else
-      do t.step();
+      do {
+        t.step();
+        t.session.sync();
+      }
       while (performance.now() - start < 8);
     if (Math.floor(t.iteration / 16) !== Math.floor(before / 16)) await t.show(st, ctx);
     else await t.session.flush();

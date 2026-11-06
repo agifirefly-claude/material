@@ -168,6 +168,16 @@ export class RenderSession {
     return out;
   }
 
+  /** on the page: waits until the GPU has drawn what was asked (draws only queue work, so a loop that times its draws
+   *  would otherwise queue far more than it measured and freeze the page). Nothing to do in the worker. */
+  sync(): void {
+    if (this.link) return;
+    // reading a pixel waits for every draw before it (gl.finish does not, in Chrome)
+    const gl = this.main.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+  }
+
   /** the worker lost its targets */
   lost(): void {
     this.broken = true;
