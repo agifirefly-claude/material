@@ -61,8 +61,9 @@ export const tests = [
   },
   {
     name: "paint: a new paint project, a stroke, a new layer, save and open it again, back to the material tab",
-    // creating and reopening a paint project each render its layers on SwiftShader
-    timeout: 180_000,
+    // creating and reopening a paint project each bake mesh maps and render layers on SwiftShader; CI runners are
+    // about 3x slower than a developer machine (137 s there for what takes 40 s here)
+    timeout: 300_000,
     async run({ page, base }) {
       await open(page, base);
       await menu(page, "File", "New paint project…");
@@ -103,7 +104,8 @@ export const tests = [
       const chooser = page.waitForEvent("filechooser");
       await menu(page, "File", "Open paint project");
       await (await chooser).setFiles({ name: saved.suggestedFilename(), mimeType: "application/zip", buffer: zip });
-      await until(async () => (await page.locator(".project-tab").count()) === tabs + 1, "the saved paint project opens again");
+      // opening bakes the mesh maps again before the tab appears: the same budget as creating the project
+      await until(async () => (await page.locator(".project-tab").count()) === tabs + 1, "the saved paint project opens again", 45_000);
       await until(async () => (await page.locator(".layer-row").count()) === n + 1, "with its layers");
       // back to the material
       await page.locator(".project-tab", { hasText: "bricks" }).click();
