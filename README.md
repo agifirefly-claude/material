@@ -15,7 +15,7 @@
 | 分析 | 每个节点：端口表（每个输入来自哪里、每个输出去往哪里）、上游依赖树（可跨子图跳转）、着色器模型（参数在代码里的实际取值、各输出表达式、code、instance、global）、所选输出最终生成的 GLSL（片段或完整着色器）及其 uniform 的实时值；整个图：节点类型统计 |
 | 预览 | 节点内缩略图（与 Material Maker 一样按需显示，也可全部显示）、2D 大图（可平铺查看接缝、可存 PNG）、3D PBR 预览（球、立方体、圆柱、平面、圆环、环结，或载入 OBJ/GLB 模型；两种环境光照；可开置换）。3D 纹理材质、光线步进材质、天空材质由渲染器直接光线追踪显示。用到时间的节点会持续动画 |
 | 文件 | 打开和保存 Material Maker 的 `.ptex` 工程（格式相同，双向通用）；43 个官方示例；自动保存到浏览器 |
-| 导出 | 材质贴图打包（albedo、ORM、normal OpenGL/DirectX、height、AO、metallic、roughness、emission、SSS）；以及 Material Maker 的引擎导出目标：Blender、glTF、Godot 3/4、Unity 3D/HDRP/URP、Unreal 4/5，包括动态材质生成的引擎着色器代码 |
+| 导出 | 按框架分组（文件 → 导出…）：Blender、Unity（内置管线/URP/HDRP）、Godot 3/4、Unreal 4/5（Material Maker 的导出目标，含动态材质生成的引擎着色器代码）；Cocos Creator 3.x（`.mtl` 材质加贴图和 `.meta`）；glTF（`.glb`，通过 Khronos 官方校验，Cocos、Blender、Godot、Unity、Unreal、three.js、Babylon.js 都能导入）；m3e-canvas-pro（m3e 材质包，规范见 [docs/m3e-material.md](docs/m3e-material.md)）；贴图包（albedo、ORM、normal OpenGL/DirectX、height、AO、metallic、roughness、emission、SSS） |
 
 ## 启动
 
@@ -121,6 +121,12 @@ Material Maker 的节点代码按桌面 GLSL 4.50 写（在 Godot 里作为 Vulk
 按需求不迁移：Material Maker 网站的登录，以及在网站上下载和分享节点、材质、环境。
 
 逐项对照见 [docs/迁移清单.md](docs/迁移清单.md)。
+
+## 独立性
+
+本项目是独立的应用，不依赖 m3e-canvas-pro。与 m3e-canvas-pro 的唯一联系是 m3e 材质包这个文件格式：
+- 规范：[docs/m3e-material.md](docs/m3e-material.md)
+- 参考实现：`src/formats/m3e-material.ts`，不依赖任何库，可以直接复制过去使用
 
 ## 许可证
 

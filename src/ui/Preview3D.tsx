@@ -298,7 +298,9 @@ export function Preview3D({ active }: { active: boolean }) {
       mat.map = t.textures.albedo;
       mat.aoMap = mat.roughnessMap = mat.metalnessMap = present.has("orm") ? t.textures.orm : null;
       mat.emissiveMap = present.has("emission") ? t.textures.emission : null;
-      mat.normalMap = present.has("normal") ? t.textures.normal : null;
+      // an unconnected normal is 0.5 grey, which Godot reads as flat (it rebuilds z) but three.js as a zero normal
+      const normalUsed = !m.getInputDefs().some((d) => d.name === "normal_tex") || m.isConnected("normal_tex");
+      mat.normalMap = present.has("normal") && normalUsed ? t.textures.normal : null;
       if (usesTime && previews.animate) setAnimTick((x) => x + 1);
       // the object's UV scale (uv1_scale)
       const [su, sv] = uvScale.split(",").map(Number);

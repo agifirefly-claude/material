@@ -12,6 +12,7 @@ import { Preview3D } from "./Preview3D";
 import { exportForEngine, exportMaterialMaps, openExample, openProjectFile, parseProject, projectText, saveProject } from "./exporting";
 import { exportProfiles } from "../engine/export";
 import { findMaterial, previewMaps } from "./materialMaps";
+import { ExportDialog } from "./ExportDialog";
 import { raymarchPreviewSupported } from "../engine/preview3d";
 import { PreviewRay } from "./PreviewRay";
 import { newProject } from "../engine/loader";
@@ -154,7 +155,7 @@ export function App() {
               <button onClick={() => (close(), setExamples(true))}>{t("Examples…")}</button>
               <button onClick={() => (close(), saveProject())}>{t("Save")}{" "}{t("(.ptex)")}</button>
               <hr />
-              <button onClick={() => (close(), setExporting(true))}>{t("Export for a game engine…")}</button>
+              <button onClick={() => (close(), setExporting(true))}>{t("Export…")}</button>
               <button onClick={() => (close(), exportMaterialMaps())}>{t("Export material maps (zip)")}</button>
               <button onClick={() => (close(), openExportDialog({ kind: "animation" }))}>{t("Export animation of the selected node…")}</button>
               <button onClick={() => (close(), openExportDialog({ kind: "taa" }))}>{t("TAA render of the selected node…")}</button>
@@ -308,50 +309,3 @@ export function restoreAutosave(): boolean {
   }
 }
 
-function ExportDialog({ onClose }: { onClose: () => void }) {
-  const m = findMaterial(editor.root);
-  const profiles = m ? exportProfiles(m) : [];
-  const [size, setSize] = useState(m ? Math.round(Math.log2(m.imageSize)) : 10);
-  const [name, setName] = useState(editor.title);
-  return (
-    <div className="modal-back" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>{t("Export for a game engine")}</h2>
-        {!m && <p>{t("This project has no material node.")}</p>}
-        {m && (
-          <>
-            <p style={{ color: "var(--text2)", marginTop: 0 }}>
-              {t("The export targets of “{0}”, from Material Maker: each writes the texture maps and the engine's own material files into a zip.", t(m.getTypeName()))}
-            </p>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
-              {t("File prefix")} <input type="text" value={name} onChange={(e) => setName(e.target.value.replace(/[^\w.-]/g, "_"))} />
-              {t("Size")}
-              <select value={size} onChange={(e) => setSize(+e.target.value)}>
-                {[8, 9, 10, 11, 12, 13].map((i) => (
-                  <option key={i} value={i}>
-                    {2 ** i}×{2 ** i}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="examples">
-              {profiles.map((p) => (
-                <button
-                  key={p}
-                  onClick={() => {
-                    const t = editor.title;
-                    editor.title = name || t;
-                    exportForEngine(p, 2 ** size).finally(() => (editor.title = t));
-                    onClose();
-                  }}
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}

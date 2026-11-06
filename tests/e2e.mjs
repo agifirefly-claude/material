@@ -2,6 +2,7 @@
 // writing through the File System Access API (with the picker and the file replaced by an in-page fake).
 import { createRequire } from "node:module";
 import { createServer } from "vite";
+import validator from "gltf-validator";
 const { chromium } = createRequire(import.meta.url)("playwright");
 const port = +(process.env.E2E_PORT ?? 5198);
 const URL = "http://127.0.0.1:" + port;
@@ -94,6 +95,57 @@ await (async () => {
   console.log(errs.join('\n'));
   if (!(w.length === 2 && w[0].hash !== w[1].hash && w.every((x) => x.head.join(',') === '137,80,78,71,13,10,26,10'))) fail('auto export wrote ' + w.length + ' files');
   if (errs.length) fail(errs.join('; '));
+  await p.close();
+})();
+
+console.log("== New exports: m3e material, Cocos Creator, glTF");
+await (async () => {
+  const p = await b.newPage();
+  const errs = [];
+  p.on("pageerror", (e) => errs.push(e.message));
+  await p.goto(URL + "/?lang=en&example=bricks");
+  await p.waitForTimeout(5000);
+  const r = await p.evaluate(async () => {
+    const { buildM3eMaterial } = await import("/src/export/m3eMaterial.ts");
+    const { openMaterialFile } = await import("/src/formats/m3e-material.ts");
+    const { cocosFiles, glbFile } = await import("/src/export/engines.ts");
+    const { findMaterial } = await import("/src/ui/materialMaps.ts");
+    const ed = window.mmEditor;
+    const m = findMaterial(ed.root);
+    const out = {};
+    // m3e: what the exporter writes is what the format's reader keeps, whole
+    const file = await buildM3eMaterial(ed.renderer, m, { name: "bricks", tile: 128, resolution: 128, light: { azimuth: 315, elevation: 45 }, rawMaps: true, format: "png", project: "{}" });
+    const back = openMaterialFile(JSON.parse(JSON.stringify(file)));
+    out.m3e = { valid: !!back, same: !!back && JSON.stringify(back[0].maps) === JSON.stringify(file.materials[0].maps), maps: Object.keys(file.materials[0].maps) };
+    // Cocos: every texture the material refers to is an image whose meta has that sub asset
+    const files = await cocosFiles(ed.renderer, m, "bricks", 128);
+    const dec = (b) => JSON.parse(new TextDecoder().decode(b));
+    const mtl = dec(files["bricks/bricks.mtl"]);
+    const metas = Object.keys(files).filter((k) => k.endsWith(".png.meta")).map((k) => dec(files[k]));
+    const refs = Object.values(mtl._props[0]).filter((v) => v && v.__uuid__).map((v) => v.__uuid__);
+    out.cocos = {
+      files: Object.keys(files),
+      effect: mtl._effectAsset.__uuid__,
+      refsResolved: refs.every((u) => metas.some((mt) => mt.subMetas["6c48a"].uuid === u)),
+      refs: refs.length,
+      defines: mtl._defines[0],
+      passes: mtl._defines.length,
+      pngs: Object.keys(files).filter((k) => k.endsWith(".png")).every((k) => files[k][0] === 0x89 && files[k][1] === 0x50),
+    };
+    const glb = await glbFile(ed.renderer, m, "bricks", 128, "plane");
+    out.glb = Array.from(glb);
+    return out;
+  });
+  console.log("m3e:", JSON.stringify(r.m3e));
+  if (!r.m3e.valid || !r.m3e.same) fail("the m3e material file does not read back whole");
+  console.log("cocos:", JSON.stringify(r.cocos));
+  if (r.cocos.effect !== "c8f66d17-351a-48da-a12c-0212d28575c4" || !r.cocos.refsResolved || r.cocos.refs < 3 || r.cocos.passes !== 6 || !r.cocos.pngs) fail("Cocos export");
+  const report = await validator.validateBytes(new Uint8Array(r.glb));
+  const issues = report.issues;
+  console.log(`glb: ${r.glb.length} bytes, ${issues.numErrors} errors, ${issues.numWarnings} warnings, materials ${report.info?.materialCount}, textures ${report.info?.textureCount}`);
+  for (const m of issues.messages.filter((x) => x.severity <= 1).slice(0, 8)) console.log("   ", m.code, m.message, m.pointer ?? "");
+  if (issues.numErrors) fail("the .glb does not validate");
+  if (errs.length) fail(errs.join("; "));
   await p.close();
 })();
 
