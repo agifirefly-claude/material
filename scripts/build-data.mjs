@@ -48,6 +48,9 @@ const templates = {};
 for (const f of fs.readdirSync(nodeDir)) if (f.endsWith(".tmpl")) templates[f] = fs.readFileSync(path.join(nodeDir, f), "utf8");
 fs.writeFileSync(path.join(out, "templates.json"), JSON.stringify(templates));
 
+// 3D preview environments (environment_manager.gd reads them from this file)
+fs.writeFileSync(path.join(out, "environments.json"), JSON.stringify(read(path.join(mm, "environments/environments.json"))));
+
 // shared shader functions
 fs.writeFileSync(path.join(out, "shader_functions.glsl"), fs.readFileSync(path.join(mm, "shader_functions.glsl"), "utf8"));
 

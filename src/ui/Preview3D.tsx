@@ -1,97 +1,61 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { HDRLoader } from "three/examples/jsm/loaders/HDRLoader.js";
-import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { editor, useEditor } from "./store";
 import { findMaterial, previewMaps } from "./materialMaps";
 import { previews } from "./previews";
 import { isColor } from "../engine/params/types";
+import { buildGeometry, loadModel, objectByKey } from "./preview3d/objects";
+import { getSettings, objectSettings, updateSettings, usePreview3DSettings } from "./preview3d/settings";
+import { applyEnvironment, loadEnvironments, useEnvironments, type Stage } from "./preview3d/environments";
+import { PostProcessor } from "./preview3d/postprocess";
+import { CameraMenu, EnvironmentMenu, ModelMenu, PostProcessMenu } from "./preview3d/Menus";
 
-const MESHES = {
-  sphere: () => new THREE.SphereGeometry(1, 192, 96),
-  cube: () => new THREE.BoxGeometry(1.5, 1.5, 1.5, 96, 96, 96),
-  cylinder: () => new THREE.CylinderGeometry(0.8, 0.8, 1.8, 192, 64),
-  plane: () => new THREE.PlaneGeometry(2.2, 2.2, 256, 256),
-  torus: () => new THREE.TorusGeometry(0.8, 0.35, 96, 192),
-  knot: () => new THREE.TorusKnotGeometry(0.65, 0.22, 384, 64),
-};
-type MeshKind = keyof typeof MESHES | "custom";
-
-/** one geometry from a model file, centred and scaled to fit the view */
-async function loadModel(file: File): Promise<THREE.BufferGeometry> {
-  const url = URL.createObjectURL(file);
-  try {
-    let root: THREE.Object3D;
-    if (/\.obj$/i.test(file.name)) root = new OBJLoader().parse(await file.text());
-    else root = (await new GLTFLoader().loadAsync(url)).scene;
-    root.updateMatrixWorld(true);
-    const geos: THREE.BufferGeometry[] = [];
-    root.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (!m.isMesh) return;
-      let g = m.geometry.clone().applyMatrix4(m.matrixWorld);
-      if (g.index) g = g.toNonIndexed();
-      for (const k of Object.keys(g.attributes)) if (!["position", "normal", "uv"].includes(k)) g.deleteAttribute(k);
-      if (!g.attributes.normal) g.computeVertexNormals();
-      if (!g.attributes.uv) g.setAttribute("uv", new THREE.BufferAttribute(new Float32Array((g.attributes.position.count) * 2), 2));
-      geos.push(g);
-    });
-    if (!geos.length) throw new Error("No mesh in this file");
-    const geo = mergeGeometries(geos)!;
-    geo.computeBoundingBox();
-    const box = geo.boundingBox!;
-    const c = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3()).length();
-    geo.translate(-c.x, -c.y, -c.z);
-    geo.scale(2.6 / size, 2.6 / size, 2.6 / size);
-    return geo;
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-const ENVS = { studio: "hdri/photo_studio_01_1k.hdr", forest: "hdri/epping_forest_01_1k.hdr" };
 const MAP_KEYS = ["albedo", "orm", "emission", "normal", "depth"] as const;
+/** model_menu.gd rotation speeds, in radians per second */
+const ROTATION_SPEEDS = [0, 0.15, 0.6, 1.2];
+const CAMERA_HOME = new THREE.Vector3(0, 0.3, 3);
 
 export function Preview3D({ active }: { active: boolean }) {
   useEditor();
+  const settings = usePreview3DSettings();
+  const envs = useEnvironments();
   const host = useRef<HTMLDivElement>(null);
   const three = useRef<{
     renderer: THREE.WebGLRenderer;
     scene: THREE.Scene;
     camera: THREE.PerspectiveCamera;
     controls: OrbitControls;
+    pivot: THREE.Group;
     mesh: THREE.Mesh;
     material: THREE.MeshPhysicalMaterial;
     canvases: Record<string, HTMLCanvasElement>;
     textures: Record<string, THREE.CanvasTexture>;
-    pmrem: THREE.PMREMGenerator;
+    stage: Stage;
+    post: PostProcessor;
   } | null>(null);
-  const [mesh, setMesh] = useState<MeshKind>("sphere");
-  const [env, setEnv] = useState<keyof typeof ENVS>("studio");
   const [res, setRes] = useState(512);
   const [displace, setDisplace] = useState(false);
-  const [tiling, setTiling] = useState(1);
-  const [spin, setSpin] = useState(false);
   const [note, setNote] = useState("");
   const [animTick, setAnimTick] = useState(0);
+  const [custom, setCustom] = useState<THREE.BufferGeometry | null>(null);
+  const models = useRef(new Map<string, Promise<THREE.BufferGeometry>>());
 
   // set up three.js once
   useEffect(() => {
     const el = host.current!;
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     el.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     scene.background = new THREE.Color("#202226");
-    const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 100);
-    camera.position.set(0, 0.4, 4.2);
+    const camera = new THREE.PerspectiveCamera(getSettings().fov, 1, 0.05, 100);
+    camera.position.copy(CAMERA_HOME);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
+    controls.minDistance = 0.5;
+    controls.maxDistance = 150;
     const canvases: Record<string, HTMLCanvasElement> = {};
     const textures: Record<string, THREE.CanvasTexture> = {};
     for (const k of MAP_KEYS) {
@@ -115,60 +79,168 @@ export function Preview3D({ active }: { active: boolean }) {
       roughness: 1,
       metalness: 1,
     });
-    const m = new THREE.Mesh(MESHES.sphere(), material);
-    scene.add(m);
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    three.current = { renderer, scene, camera, controls, mesh: m, material, canvases, textures, pmrem };
+    // the model turns inside a pivot, as ObjectsPivot in preview_3d.tscn
+    const pivot = new THREE.Group();
+    const m = new THREE.Mesh(buildGeometry("sphere", {}, false), material);
+    pivot.add(m);
+    scene.add(pivot);
+    const sun = new THREE.DirectionalLight(0xffffff, 0);
+    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.camera.left = sun.shadow.camera.bottom = -2;
+    sun.shadow.camera.right = sun.shadow.camera.top = 2;
+    sun.shadow.bias = -0.0005;
+    const ambient = new THREE.AmbientLight(0xffffff, 0);
+    scene.add(sun, ambient);
+    const stage: Stage = { scene, pmrem: new THREE.PMREMGenerator(renderer), sun, ambient, envMaps: new Map() };
+    const post = new PostProcessor(renderer, scene, camera);
+    post.configure(getSettings().post);
+    three.current = { renderer, scene, camera, controls, pivot, mesh: m, material, canvases, textures, stage, post };
     const ro = new ResizeObserver(() => {
       const w = el.clientWidth,
         h = el.clientHeight;
       if (!w || !h) return;
       renderer.setSize(w, h);
+      post.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
     });
     ro.observe(el);
+
+    // Ctrl+drag turns the model instead of the camera; Ctrl+wheel changes the field of view (preview_3d.gd on_gui_input)
+    let turning: { x: number; y: number } | null = null;
+    const down = (e: PointerEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      turning = { x: e.clientX, y: e.clientY };
+      controls.enabled = false;
+      renderer.domElement.setPointerCapture(e.pointerId);
+    };
+    const move = (e: PointerEvent) => {
+      if (!turning) return;
+      const dx = (e.clientX - turning.x) * 0.01,
+        dy = (e.clientY - turning.y) * 0.01;
+      turning = { x: e.clientX, y: e.clientY };
+      const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+      const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+      pivot.rotateOnWorldAxis(right, dy);
+      pivot.rotateOnWorldAxis(up, dx);
+    };
+    const upH = () => {
+      turning = null;
+      controls.enabled = true;
+    };
+    const wheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      updateSettings({ fov: Math.min(90, Math.max(10, getSettings().fov + (e.deltaY > 0 ? -1 : 1))) });
+    };
+    renderer.domElement.addEventListener("pointerdown", down, true);
+    renderer.domElement.addEventListener("pointermove", move);
+    renderer.domElement.addEventListener("pointerup", upH);
+    renderer.domElement.addEventListener("wheel", wheel, { capture: true, passive: false });
+
     let raf = 0;
+    let last = performance.now();
     const loop = () => {
       raf = requestAnimationFrame(loop);
+      const now = performance.now();
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      pivot.rotateY(ROTATION_SPEEDS[getSettings().rotationSpeed] * dt);
       controls.update();
-      renderer.render(scene, camera);
+      post.draw(camera.position.distanceTo(controls.target));
     };
     loop();
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      post.dispose();
       renderer.dispose();
       el.removeChild(renderer.domElement);
       three.current = null;
     };
   }, []);
 
-  const [custom, setCustom] = useState<THREE.BufferGeometry | null>(null);
+  // the object, its shape parameters and tessellation (preview_mesh.gd update_mesh)
+  const os = objectSettings(settings.object);
+  const shapeKey = JSON.stringify([settings.object, os.params, os.tessellated]);
   useEffect(() => {
     const t = three.current!;
-    if (mesh === "custom" && !custom) return;
-    if (t.mesh.geometry !== custom) t.mesh.geometry.dispose();
-    const geo = mesh === "custom" ? custom! : MESHES[mesh]();
-    geo.setAttribute("uv1", geo.attributes.uv);
-    t.mesh.geometry = geo;
-  }, [mesh, custom]);
+    const obj = objectByKey(settings.object);
+    let live = true;
+    const use = (geo: THREE.BufferGeometry, owned: boolean) => {
+      if (!live) return;
+      const old = t.mesh.geometry;
+      geo.setAttribute("uv1", geo.attributes.uv);
+      t.mesh.geometry = geo;
+      if (t.mesh.userData.owned) old.dispose();
+      t.mesh.userData.owned = owned;
+    };
+    if (obj.key === "custom") {
+      if (custom) use(custom, false);
+    } else if (obj.url) {
+      let p = models.current.get(obj.url);
+      if (!p) {
+        p = loadModel(obj.url);
+        models.current.set(obj.url, p);
+      }
+      p.then((g) => use(g, false)).catch((e) => editor.setStatus("Cannot load the model: " + e));
+    } else use(buildGeometry(obj.key, os.params, os.tessellated), true);
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shapeKey, custom]);
 
+  // the environment (environment_menu.gd, environment_manager.gd apply_environment)
+  useEffect(() => {
+    loadEnvironments();
+  }, []);
+  const env = envs[settings.environment] ?? envs[0];
+  useEffect(() => {
+    const t = three.current;
+    if (!t || !env) return;
+    applyEnvironment(t.stage, env, settings.clearBackground);
+  }, [env, settings.clearBackground]);
+
+  // post processing, camera and shadows
   useEffect(() => {
     const t = three.current!;
-    new HDRLoader().load(ENVS[env], (tex) => {
-      const envMap = t.pmrem.fromEquirectangular(tex).texture;
-      t.scene.environment = envMap;
-      t.scene.background = new THREE.Color("#202226");
-      tex.dispose();
-    });
-  }, [env]);
+    t.post.configure(settings.post);
+    t.camera.fov = settings.fov;
+    t.camera.updateProjectionMatrix();
+    t.renderer.shadowMap.enabled = settings.sunShadow;
+    t.stage.sun.castShadow = settings.sunShadow;
+    t.mesh.castShadow = t.mesh.receiveShadow = settings.sunShadow;
+    t.material.needsUpdate = true;
+  }, [settings.post, settings.fov, settings.sunShadow]);
 
-  useEffect(() => {
-    if (three.current) three.current.controls.autoRotate = spin;
-  }, [spin]);
+  const resetCamera = () => {
+    const t = three.current!;
+    t.camera.position.copy(CAMERA_HOME);
+    t.controls.target.set(0, 0, 0);
+    t.pivot.rotation.set(0, 0, 0);
+    t.controls.update();
+  };
+  const loadCustom = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".obj,.glb,.gltf";
+    input.onchange = async () => {
+      const f = input.files?.[0];
+      if (!f) return;
+      try {
+        setCustom(await loadModel(f));
+        updateSettings({ object: "custom" });
+      } catch (err) {
+        editor.setStatus("Cannot load the model: " + err);
+      }
+    };
+    input.click();
+  };
 
   // refresh the maps after changes
+  const uvScale = os.uvScale.join(",");
   useEffect(() => {
     if (!active) return;
     const t = three.current;
@@ -216,6 +288,9 @@ export function Preview3D({ active }: { active: boolean }) {
       mat.emissiveMap = present.has("emission") ? t.textures.emission : null;
       mat.normalMap = present.has("normal") ? t.textures.normal : null;
       if (usesTime && previews.animate) setAnimTick((x) => x + 1);
+      // the object's UV scale (uv1_scale)
+      const [su, sv] = uvScale.split(",").map(Number);
+      for (const tx of Object.values(t.textures)) tx.repeat.set(su, sv);
       if (spec.unlit) {
         // unlit: the colour is all there is
         mat.emissiveMap = t.textures.albedo;
@@ -231,7 +306,6 @@ export function Preview3D({ active }: { active: boolean }) {
         return;
       }
       mat.envMapIntensity = 1;
-      for (const tx of Object.values(t.textures)) tx.repeat.set(tiling, tiling);
       const ac = isColor(p.albedo_color) ? p.albedo_color : { r: 1, g: 1, b: 1, a: 1 };
       mat.color.setRGB(ac.r, ac.g, ac.b, THREE.SRGBColorSpace);
       mat.metalness = Number(p.metallic ?? 1);
@@ -251,44 +325,15 @@ export function Preview3D({ active }: { active: boolean }) {
       mat.needsUpdate = true;
     }, animTick ? 70 : 120);
     return () => clearTimeout(timer);
-  }, [editor.version, active, res, displace, tiling, animTick]);
+  }, [editor.version, active, res, displace, uvScale, animTick]);
 
   return (
     <div className="preview-pane" style={{ flex: 1 }}>
       <div className="tools">
-        <select
-          value={mesh}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v === "load") {
-              const input = document.createElement("input");
-              input.type = "file";
-              input.accept = ".obj,.glb,.gltf";
-              input.onchange = async () => {
-                const f = input.files?.[0];
-                if (!f) return;
-                try {
-                  setCustom(await loadModel(f));
-                  setMesh("custom");
-                } catch (err) {
-                  editor.setStatus("Cannot load the model: " + err);
-                }
-              };
-              input.click();
-            } else setMesh(v as MeshKind);
-          }}
-        >
-          {Object.keys(MESHES).map((k) => (
-            <option key={k}>{k}</option>
-          ))}
-          {custom && <option value="custom">custom model</option>}
-          <option value="load">Load model… (.obj, .glb)</option>
-        </select>
-        <select value={env} onChange={(e) => setEnv(e.target.value as keyof typeof ENVS)}>
-          {Object.keys(ENVS).map((k) => (
-            <option key={k}>{k}</option>
-          ))}
-        </select>
+        <ModelMenu onLoadModel={loadCustom} hasCustom={!!custom} />
+        <EnvironmentMenu />
+        <PostProcessMenu />
+        <CameraMenu onReset={resetCamera} />
         <select value={res} onChange={(e) => setRes(+e.target.value)} title="Texture resolution of the preview">
           {[256, 512, 1024, 2048].map((s) => (
             <option key={s} value={s}>
@@ -296,18 +341,8 @@ export function Preview3D({ active }: { active: boolean }) {
             </option>
           ))}
         </select>
-        <select value={tiling} onChange={(e) => setTiling(+e.target.value)} title="Tiling">
-          {[1, 2, 3, 4].map((s) => (
-            <option key={s} value={s}>
-              ×{s}
-            </option>
-          ))}
-        </select>
-        <label title="Use the depth map as displacement">
+        <label title="Use the depth map as displacement (turn on the model's tessellation for detail)">
           <input type="checkbox" checked={displace} onChange={(e) => setDisplace(e.target.checked)} /> depth
-        </label>
-        <label>
-          <input type="checkbox" checked={spin} onChange={(e) => setSpin(e.target.checked)} /> spin
         </label>
       </div>
       <div className="body" ref={host}>

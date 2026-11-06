@@ -193,3 +193,24 @@ select { padding: 2px 4px; }
 .sdf-nodeparam button { padding: 0 5px; }
 .sdf-nodeparam-range { grid-column: 1 / -1; display: flex; gap: 4px; align-items: center; color: var(--text3); }
 .sdf-nodeparam-range input { width: 64px; }
+
+/* 3D preview menus and environment editor */
+.preview-pane .tools button.on, .p3d-panel button.on { background: var(--accent2); border-color: var(--accent); }
+.menu-list.p3d-panel { min-width: 0; max-height: 75vh; }
+.menu-list.p3d-panel button { display: inline-block; width: auto; border: 1px solid var(--line); background: var(--bg3); padding: 3px 8px; margin: 2px 0; }
+.menu-list.p3d-panel .insp { gap: 6px; }
+.menu-list.p3d-panel .row { grid-template-columns: 90px 1fr; }
+.env-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.menu-list.p3d-panel .env-cell { padding: 0; aspect-ratio: 1; overflow: hidden; display: grid; place-items: center; font-size: 10px; margin: 0; }
+.menu-list.p3d-panel .env-cell img { width: 100%; height: 100%; object-fit: cover; }
+.menu-list.p3d-panel .env-cell.on { outline: 2px solid var(--accent); }
+.modal.env-editor { width: min(820px, 94vw); }
+.env-editor-body { display: grid; grid-template-columns: 220px 1fr; gap: 12px; }
+.env-list { display: flex; flex-direction: column; gap: 2px; max-height: 65vh; overflow: auto; }
+.env-item { display: flex; gap: 8px; align-items: center; padding: 3px; border-radius: 4px; cursor: pointer; }
+.env-item:hover { background: var(--bg3); }
+.env-item.sel { background: var(--accent2); color: #fff; }
+.env-item img, .env-thumb-empty { width: 40px; height: 40px; border-radius: 3px; flex: none; background: var(--bg); display: grid; place-items: center; color: var(--text3); }
+.env-fields { padding: 0; }
+.env-fields .row { grid-template-columns: 170px 1fr; }
+.env-preview { width: 192px; height: 192px; border-radius: 6px; align-self: center; }
