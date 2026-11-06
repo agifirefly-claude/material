@@ -68,7 +68,7 @@ function Examples({ onClose }: { onClose: () => void }) {
   return (
     <div className="modal-back" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>{t("Examples from Material Maker")}</h2>
+        <h2>{t("Examples")}</h2>
         <p style={{ color: "var(--text2)", marginTop: 0 }}>{t("Each opens as a full node graph you can inspect: select nodes to see their parameters and generated code, double click subgraphs to open them.")}</p>
         <div className="examples">
           {list.map((n) => (

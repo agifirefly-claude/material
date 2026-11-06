@@ -35,11 +35,11 @@
 
 | 决定 | 数量 |
 | --- | --- |
-| 已修复 | 5 |
+| 已修复 | 8 |
 | 本次实现 | 5 |
 | 增强已实现 | 17 |
 | 增强建议 | 11 |
-| 暂缓 | 41 |
+| 暂缓 | 38 |
 | 不做 | 45 |
 | 不适用 | 97 |
 | 合计 | 221 |
@@ -92,11 +92,21 @@ UE5 配置生成的 `bricks.py` 先 `sys.path.append('$(material_maker_path)/exp
 
 #161 原文要的是“按上次的名字和格式重新导出”；浏览器每次下载都会弹出或进下载目录，做不到覆盖原文件，所以只做了保存。覆盖写回的需求由已有的自动导出节点（File System Access API）满足。
 
+### 3.5 节点数据（[#1137](https://github.com/RodZill4/material-maker/issues/1137)、[#528](https://github.com/RodZill4/material-maker/issues/528)、[#1205](https://github.com/RodZill4/material-maker/issues/1205)，中）
+
+节点库解耦后，这三处直接改在 `library/nodes/` 里：
+
+- **Tiler 固定偏移在奇数行时错行**（#1137）。`tiler` 的 `instance` 用 `mod(mod(tile_index.y, tile.y), 2.0)` 判断奇偶行。GPU 除法不精确时，`mod(9.0, 9.0)` 可能得到 9 而不是 0，原报告里出错的正好是 5、9、13 行。改为 `mod(floor(mod(tile_index.y+0.5, tile.y)), 2.0)`：整数加 0.5 后再取整，不受除法误差影响。无头 Chromium 用软件渲染，复现不了这个误差，所以还没在真实 GPU 上验证。
+- **Blend 的 Dodge 在输入大于 1 时出现色带**（#528）。`blend_dodge_f` 只在 `c1 == 1.0` 时特判，`c1 > 1` 时会除以负数。改为 `(c1>=1.0)?1.0:min(c2/(1.0-c1),1.0)`。`blend2` 共用这个函数。
+- **Godot 4 ORM 的贴图读不到**（#1205）。`material`、`material_tesselated` 的 Godot 4 ORM 模板头部是 `format=3`，资源引用却是 Godot 3 写法。改为 `type="Texture2D" id="N"` 和 `ExtResource("N")`。还需要在本地 Godot 4 里确认，步骤见 [本地验证](本地验证.md)。
+
+测试：`tests/unit/issue-review.test.ts`，检查两个节点的代码，并生成一次 Godot 4 ORM 导出，确认用的是 Godot 4 写法。节点编译 399/399、示例 43/43、导出 39/39 不变。
+
 ## 4. 适用但暂缓的
 
 ### 4.1 节点数据（交给数据维护方）
 
-节点定义正在搬迁，本次不改数据文件，下面列出建议的改动。
+节点库解耦后成为本项目自己的数据（`library/nodes/`），下面的 Tiler、Dodge 已直接改在数据里，见 3.5。
 
 **平铺审计**。m3e 材质包要求四边无缝，所以用临时 Playwright 脚本把所有无输入的生成节点（97 个）和全部砖块节点，各用 3 个种子渲染 256²，比较左右、上下两条接缝处的跳变与图中央相邻列的跳变（比值 0 表示完全无缝，大于 3 视为可疑）：
 
@@ -104,24 +114,6 @@ UE5 配置生成的 `bricks.py` 先 `sys.path.append('$(material_maker_path)/exp
 - 砖块节点：`bricks_uneven3` 和 `bricks_uneven3_2` 为 28（[#831](https://github.com/RodZill4/material-maker/issues/831)），`skewed_uneven_bricks` 为 10（[#623](https://github.com/RodZill4/material-maker/issues/623)），确认不平铺。其余砖块节点都是 0。
 
 `bricks_uneven3` 的 `bricks_uneven2()` 函数从代码上看在 x、y 方向都是周期的，接缝的来源还没找到，需要单独调试。用这两个节点做 m3e 材质时要注意。
-
-**Tiler 固定偏移在奇数行时错行**（[#1137](https://github.com/RodZill4/material-maker/issues/1137)）。`tiler` 节点 `instance` 里的 `mod(mod(tile_index.y, tile.y), 2.0)`，在 GPU 除法不精确时，`mod(9.0, 9.0)` 可能得到 9 而不是 0，于是奇偶判断出错。原报告里正好是 5、9、13 这几个数。建议改为：
-
-```diff
-- pos += vec2(($fixed_offset/tile.x)*mod(mod(tile_index.y, tile.y), 2.0), 0.0)+$offset*seed/tile;
-+ pos += vec2(($fixed_offset/tile.x)*mod(floor(mod(tile_index.y+0.5, tile.y)), 2.0), 0.0)+$offset*seed/tile;
-```
-
-（`nodes/tiler.mmg` → `shader_model.instance`。整数加 0.5 后再取整，不受除法误差影响。无头 Chromium 用的是软件渲染，复现不了这个误差，所以没有在 GPU 上验证。）
-
-**Blend 的 Dodge 在输入大于 1 时出错**（[#528](https://github.com/RodZill4/material-maker/issues/528)）。`blend` 节点 global 里的 `blend_dodge_f` 只在 `c1 == 1.0` 时特判，`c1 > 1` 时除以负数得到负值，于是出现色带。建议：
-
-```diff
-- return (c1==1.0)?c1:min(c2/(1.0-c1),1.0);
-+ return (c1>=1.0)?1.0:min(c2/(1.0-c1),1.0);
-```
-
-（`nodes/blend.mmg` → `shader_model.global`。`blend2` 共用同一个函数。）
 
 其余节点数据问题（[#849](https://github.com/RodZill4/material-maker/issues/849) Smooth Pixels 插值、[#745](https://github.com/RodZill4/material-maker/issues/745) Random Weave 伪影、[#739](https://github.com/RodZill4/material-maker/issues/739) Circle Splatter 实例 UV）与原版相同，价值低，暂缓。
 
@@ -171,7 +163,7 @@ pruneNodes(alive: Set<string>): void {
 
 ### 4.3 需要在真实引擎里验证
 
-- **Godot 4 ORM**（[#1205](https://github.com/RodZill4/material-maker/issues/1205)）。导出的 `.tres` 头部是 `format=3`，但资源引用用的是 Godot 3 的写法：`type="Texture"`、`id=2`、`ExtResource( 2 )`。Godot 4 的写法是 `[ext_resource type="Texture2D" path="..." id="2"]` 和 `ExtResource("2")`。Godot 4 Standard 模板用 `format=2`，能被兼容加载；ORM 模板是 `format=3` 配旧写法，很可能就是 `orm_texture` 读不到的原因。改的是导出模板（数据），需要在 Godot 4 里确认后再改。
+- **Godot 4 ORM**（[#1205](https://github.com/RodZill4/material-maker/issues/1205)）：模板已改为 Godot 4 写法（见 3.5），还需要在本地 Godot 4 里打开确认 `orm_texture` 能读到。
 - **Godot 4 动态材质数组初始化**（[#732](https://github.com/RodZill4/material-maker/issues/732)）、**UE5 动态材质的 HLSL 错误**（[#760](https://github.com/RodZill4/material-maker/issues/760)）：生成的代码与原版相同，需要引擎才能确认。
 
 ### 4.4 其他
@@ -238,7 +230,7 @@ pruneNodes(alive: Set<string>): void {
 | [1220](https://github.com/RodZill4/material-maker/issues/1220) | Roughness value overrides texture. | 缺陷 | 否 | 无 | 不适用 | Godot 的 roughness 与贴图相乘，导出写 1.0 正确 |
 | [1215](https://github.com/RodZill4/material-maker/issues/1215) | Slovenian translation | 增强 | 否 | 无 | 不做 | 新增语言靠翻译者，不是代码问题 |
 | [1210](https://github.com/RodZill4/material-maker/issues/1210) | random crashing and freezing | 缺陷 | 否 | 无 | 不适用 | Godot 崩溃 |
-| [1205](https://github.com/RodZill4/material-maker/issues/1205) | ORM texture is not set when exporting to Godot 4 ORM | 缺陷 | 不明 | 中 | 暂缓 | 导出的 Godot 4 ORM .tres 用了 Godot 3 写法；需在真实 Godot 4 里验证，建议的模板改动见下文 |
+| [1205](https://github.com/RodZill4/material-maker/issues/1205) | ORM texture is not set when exporting to Godot 4 ORM | 缺陷 | 不明 | 中 | 已修复 | 导出的 Godot 4 ORM .tres 用了 Godot 3 写法，已改为 Godot 4 写法；待本地 Godot 4 确认（3.5） |
 | [1187](https://github.com/RodZill4/material-maker/issues/1187) | Out of application memory on macOS | 缺陷 | 否 | 无 | 不适用 | macOS 内存（Godot） |
 | [1183](https://github.com/RodZill4/material-maker/issues/1183) | Please add sampler2d as a type of input | 增强 | 否 | 低 | 不做 | sampler2D 输入会破坏节点之间的代码生成方式 |
 | [1178](https://github.com/RodZill4/material-maker/issues/1178) | Dynamic PBR Material causes flickering of both 2D and 3D previews | 缺陷 | 否 | 无 | 不适用 | Godot 预览闪烁 |
@@ -247,7 +239,7 @@ pruneNodes(alive: Set<string>): void {
 | [1171](https://github.com/RodZill4/material-maker/issues/1171) | Add premultiplied to straight (and vise-versa) alpha node | 增强 | 否 | 低 | 增强建议 | 预乘/直通 alpha 转换节点，可以用自定义节点做；见下文 |
 | [1152](https://github.com/RodZill4/material-maker/issues/1152) | RMB node popup turns black, app freezes on cachyos | 缺陷 | 否 | 无 | 不适用 | Linux 发行版问题 |
 | [1150](https://github.com/RodZill4/material-maker/issues/1150) | Preview2D (2) only displays checkers map since program crashed | 缺陷 | 否 | 无 | 不适用 | 原版崩溃后的状态 |
-| [1137](https://github.com/RodZill4/material-maker/issues/1137) | Tiler: Fixed offset offsets wrong rows when Tile Y has some odd numbers | 缺陷 | 是 | 中 | 暂缓 | Tiler 偏移用 `mod(mod(y, tile.y), 2.0)`，GPU 上除法不精确时奇数行数（5、9、13）判错；是节点数据问题，建议的 JSON 改动见下文 |
+| [1137](https://github.com/RodZill4/material-maker/issues/1137) | Tiler: Fixed offset offsets wrong rows when Tile Y has some odd numbers | 缺陷 | 是 | 中 | 已修复 | Tiler 偏移用 `mod(mod(y, tile.y), 2.0)`，GPU 上除法不精确时奇数行判错；已改为加 0.5 后取整（3.5） |
 | [1132](https://github.com/RodZill4/material-maker/issues/1132) | Linux Commandline Batch Export does not work, even in 1.5p1 release. | 缺陷 | 否 | 无 | 不适用 | 原版命令行导出 |
 | [1131](https://github.com/RodZill4/material-maker/issues/1131) | Performance Problems with 1.4 | 缺陷 | 否 | 无 | 不适用 | 原版性能 |
 | [1126](https://github.com/RodZill4/material-maker/issues/1126) | Add mask input to "Adjust HSV" node | 增强 | 否 | 低 | 增强建议 | 给 Adjust HSV 加遮罩：可用 Blend 节点实现，改节点数据收益小 |
@@ -344,7 +336,7 @@ pruneNodes(alive: Set<string>): void {
 | [537](https://github.com/RodZill4/material-maker/issues/537) | Blender export documentation missing | 其他 | 否 | 无 | 不适用 | 原版文档 |
 | [536](https://github.com/RodZill4/material-maker/issues/536) | Mask node | 增强 | 否 | 低 | 不做 | 已有 Blend/Math 可做遮罩 |
 | [529](https://github.com/RodZill4/material-maker/issues/529) | Better node collapsing. | 增强 | 否 | 低 | 不做 | 节点折叠方式 |
-| [528](https://github.com/RodZill4/material-maker/issues/528) | Dodge in blend node has some weird issues. | 缺陷 | 是 | 中 | 暂缓 | Dodge 在输入大于 1 时除以负数；节点数据问题，建议的 JSON 改动见下文 |
+| [528](https://github.com/RodZill4/material-maker/issues/528) | Dodge in blend node has some weird issues. | 缺陷 | 是 | 中 | 已修复 | Dodge 在输入大于 1 时除以负数；已改为大于等于 1 时取 1（3.5） |
 | [526](https://github.com/RodZill4/material-maker/issues/526) | Curvature from normal map or "normal to height node" | 增强 | 否 | 低 | 不做 | 节点功能请求 |
 | [525](https://github.com/RodZill4/material-maker/issues/525) | Show and use grid as seperate buttons. | 增强 | 否 | 低 | 不做 | 网格显示按钮 |
 | [524](https://github.com/RodZill4/material-maker/issues/524) | Right and Left click panning option in preferences please. | 增强 | 否 | 低 | 不做 | 平移按键偏好 |

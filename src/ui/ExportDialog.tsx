@@ -17,7 +17,7 @@ function groups(m: GenMaterial): Group[] {
   const all = exportProfiles(m);
   const take = (re: RegExp) => all.filter((p) => re.test(p));
   const gs: Group[] = [
-    { key: "blender", label: "Blender", note: t("A Blender material set up with the texture maps"), profiles: take(/^Blender/) },
+    { key: "blender", label: "Blender", note: t("Texture maps named for Blender (albedo, roughness, metallic, normal, displacement, SSS, emission, occlusion)"), profiles: take(/^Blender/) },
     { key: "unity", label: "Unity", note: t("Built-in render pipeline, URP and HDRP materials"), profiles: take(/^Unity/) },
     { key: "godot", label: "Godot", note: t("Godot 3 and 4 materials (.tres) and shaders"), profiles: take(/^Godot/) },
     { key: "unreal", label: "Unreal Engine", note: t("Unreal Engine 4 and 5"), profiles: take(/^Unreal/) },

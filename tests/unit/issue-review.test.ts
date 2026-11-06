@@ -104,3 +104,28 @@ describe("MM #204: decimal comma in number fields", () => {
     expect(parseFloatInput("$a*2")).toBe("$a*2");
   });
 });
+
+describe("MM #1137, #528, #1205: node data fixes", () => {
+  const node = (n: string) => JSON.stringify(read("nodes.json")[n] ?? read("nodes.json").find?.((d: { name?: string }) => d.name === n));
+  it("Tiler picks odd rows without relying on an exact mod", () => {
+    expect(node("tiler")).toContain("mod(floor(mod(tile_index.y+0.5, tile.y)), 2.0)");
+  });
+  it("Dodge clamps when the blend input is 1 or more", () => {
+    expect(node("blend")).toContain("(c1>=1.0)?1.0:");
+  });
+  it("Godot 4 ORM export uses Godot 4 resource syntax", () => {
+    const g = new GenGraph();
+    const m = createGen({ type: "material" }) as GenMaterial;
+    g.addGenerator(m);
+    const noise = createGen({ type: "perlin" })!;
+    g.addGenerator(noise);
+    g.connectChildren(noise, 0, m, 0);
+    const tres = planExport(m, "Godot/Godot 4 ORM", "t").find((f) => f.name.endsWith(".tres"));
+    expect(tres?.kind).toBe("text");
+    const text = tres?.kind === "text" ? tres.text : "";
+    expect(text).toContain('albedo_texture = ExtResource("1")');
+    expect(text).toContain('type="Texture2D" id="1"]');
+    expect(text).not.toMatch(/ExtResource\( /);
+    expect(text).not.toMatch(/type="Texture"/);
+  });
+});
