@@ -101,9 +101,9 @@ export function PaintView() {
     controls: OrbitControls;
     mesh: THREE.Mesh;
     material: THREE.MeshStandardMaterial;
-    canvases: Record<string, HTMLCanvasElement>;
-    textures: Record<string, THREE.CanvasTexture>;
+    textures: Record<string, THREE.DataTexture>;
     dirtyMaps: boolean;
+    compositing: boolean;
     stroke: StrokeState;
     stage: Stage;
   } | null>(null);
@@ -130,17 +130,20 @@ export function PaintView() {
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.mouseButtons = { LEFT: null as unknown as THREE.MOUSE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
     controls.enableDamping = false;
-    const canvases: Record<string, HTMLCanvasElement> = {};
-    const textures: Record<string, THREE.CanvasTexture> = {};
-    for (const k of MAPS) {
-      const c = document.createElement("canvas");
-      c.width = c.height = 4;
-      canvases[k] = c;
-      const t = new THREE.CanvasTexture(c);
+    // the maps as 8 bit pixels read back from the paint renderer without stalling the page (Gpu.readBytesAsync)
+    const mapTexture = (k: string, size: number, data: Uint8Array) => {
+      const t = new THREE.DataTexture(data, size, size, THREE.RGBAFormat, THREE.UnsignedByteType);
       t.colorSpace = k === "albedo" || k === "emission" ? THREE.SRGBColorSpace : THREE.NoColorSpace;
       t.anisotropy = 8;
-      textures[k] = t;
-    }
+      t.generateMipmaps = true;
+      t.minFilter = THREE.LinearMipmapLinearFilter;
+      t.magFilter = THREE.LinearFilter;
+      t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+      t.needsUpdate = true;
+      return t;
+    };
+    const textures: Record<string, THREE.DataTexture> = {};
+    for (const k of MAPS) textures[k] = mapTexture(k, 4, new Uint8Array(64));
     const material = new THREE.MeshStandardMaterial({ map: textures.albedo, aoMap: textures.orm, roughnessMap: textures.orm, metalnessMap: textures.orm, emissiveMap: textures.emission, emissive: new THREE.Color(1, 1, 1), normalMap: textures.normal_gl, metalness: 1, roughness: 1 });
     const mesh = new THREE.Mesh(paintMeshToGeometry(project.mesh), material);
     scene.add(mesh);
@@ -149,7 +152,7 @@ export function PaintView() {
     const ambient = new THREE.AmbientLight();
     scene.add(sun, ambient);
     const stage: Stage = { scene, pmrem, sun, ambient, envMaps: new Map() };
-    const st = { stage, renderer, scene, camera, controls, mesh, material, canvases, textures, dirtyMaps: true, stroke: new StrokeState() };
+    const st = { stage, renderer, scene, camera, controls, mesh, material, textures, dirtyMaps: true, compositing: false, stroke: new StrokeState() };
     state.current = st;
     const updateView = () => {
       const w = el.clientWidth,
@@ -177,24 +180,41 @@ export function PaintView() {
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const p = paint.project;
-      if (p && st.dirtyMaps) {
+      // the maps are composited without waiting for the GPU (compositeAsync), then drawn into the textures
+      if (p && st.dirtyMaps && !st.compositing) {
         st.dirtyMaps = false;
-        const gpu = p.gpu;
-        for (const k of MAPS) {
-          const t = p.compositor.maps[k];
-          if (!t) continue;
-          const c = canvases[k];
-          if (c.width !== t.size) {
-            c.width = c.height = t.size;
-            textures[k].dispose();
-            const nt = new THREE.CanvasTexture(c);
-            nt.colorSpace = textures[k].colorSpace;
-            nt.anisotropy = 8;
-            textures[k] = nt;
+        st.compositing = true;
+        p.compositeAsync()
+          .then(() => (state.current === st && paint.project === p ? showMaps(p) : undefined))
+          .then(
+            () => {
+              st.compositing = false;
+            },
+            (e) => {
+              st.compositing = false;
+              console.error("composite", e);
+            },
+          );
+      }
+      renderer.render(scene, camera);
+    };
+    const showMaps = async (p: PaintProject) => {
+      const keys = MAPS.filter((k) => p.compositor.maps[k]);
+      const sizes = keys.map((k) => p.compositor.maps[k]!.size);
+      // flipped: the view's textures have v = 0 at the top (as the canvases they replace had)
+      const bytes = await p.gpu.readBytesAsync(keys.map((k) => p.compositor.maps[k]!), true, true);
+      if (state.current !== st) return;
+      {
+        keys.forEach((k, i) => {
+          const old = textures[k];
+          if (old.image.width === sizes[i]) {
+            old.image.data = bytes[i];
+            old.needsUpdate = true;
+          } else {
+            old.dispose();
+            textures[k] = mapTexture(k, sizes[i], bytes[i]);
           }
-          gpu.present(t, c.getContext("2d")!, { opaque: true });
-          textures[k].needsUpdate = true;
-        }
+        });
         const s = p.settings;
         material.map = textures.albedo;
         material.aoMap = material.roughnessMap = material.metalnessMap = textures.orm;
@@ -203,7 +223,6 @@ export function PaintView() {
         material.normalMap = s.paint_normal || s.paint_depth_as_bump ? textures.normal_gl : null;
         material.needsUpdate = true;
       }
-      renderer.render(scene, camera);
     };
     loop();
     return () => {

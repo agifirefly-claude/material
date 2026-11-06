@@ -52,7 +52,7 @@ npm run dev
 | `npm run cli -- export "materials/*.ptex" -t "Godot/Godot 4 Standard" -o build` | 命令行批量导出，见 [docs/命令行.md](docs/命令行.md) |
 | `npm run test:ui` | 界面回归测试（Playwright 驱动真实界面，约 5 分钟），见 [tests/ui/README.md](tests/ui/README.md) |
 | `npm run test:cli` | 命令行导出的测试 |
-| `npm run test:worker` | Worker 渲染与页面渲染逐像素一致、导出等图片加载、删除节点后释放渲染结果 |
+| `npm run test:worker` | Worker 渲染与页面渲染逐像素一致、导出等图片加载、删除节点后释放渲染结果；网格贴图在 paint worker 里烘焙、绘制工程异步合成和保存，结果与页面同步路径一致且页面不卡 |
 | `npm run perf` | 测量导出和预览时页面的卡顿（Worker 与页面渲染对比），结果见 [docs/性能.md](docs/性能.md) |
 | `npm run test:engines` | 用本机的 Godot、Blender 检查导出能否正确导入（未安装的跳过），其他引擎的手动清单见 [docs/本地验证.md](docs/本地验证.md) |
 

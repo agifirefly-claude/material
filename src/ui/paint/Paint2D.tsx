@@ -60,7 +60,7 @@ export function Paint2D() {
     const ro = new ResizeObserver(() => {
       c.width = Math.max(1, c.clientWidth);
       c.height = Math.max(1, c.clientHeight);
-      draw();
+      void (paint.project?.compositeAsync() ?? Promise.resolve()).then(draw);
     });
     ro.observe(c);
     return () => ro.disconnect();
@@ -68,12 +68,16 @@ export function Paint2D() {
   }, []);
   useEffect(() => {
     let raf = 0;
+    // the maps are composited without waiting for the GPU, then drawn
+    let alive = true;
+    const redraw = () => p.compositeAsync().then(() => alive && draw());
     const off = p.onChange(() => {
       cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(draw);
+      raf = requestAnimationFrame(redraw);
     });
-    draw();
+    redraw();
     return () => {
+      alive = false;
       off();
       cancelAnimationFrame(raf);
     };

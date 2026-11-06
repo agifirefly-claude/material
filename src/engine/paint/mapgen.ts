@@ -4,7 +4,7 @@
  * then the postprocess passes run: seams (nearest covered texel, in two separable passes), dilation past the UV
  * islands, normalisation and denoising. Compute passes of the original are full screen fragment passes here. */
 import type { Renderer, Target } from "../render/renderer";
-import { GLSL_HEADER, Gpu, gpuFor, type RT } from "./gpu";
+import { GLSL_HEADER, Gpu, gpuFor, gpuPause, type RT } from "./gpu";
 import { adjacencyColors, buildBvh, curvatureColors, type PaintMesh } from "./mesh";
 
 export type MapName = "position" | "normal" | "tangent" | "ambient_occlusion" | "bent_normals" | "thickness" | "curvature" | "seams" | "adjacency";
@@ -27,7 +27,7 @@ export const MAP_DEFINITIONS: Record<MapName, MapDef> = {
 /** Material Maker's bake_* preferences (globals.gd defaults); set from the preferences */
 export const BAKE_SETTINGS = { ray_count: 64, ao_ray_dist: 128.0, ao_ray_bias: 0.005, denoise_radius: 3 };
 /** maps baked with other settings are other maps */
-const bakeKey = () => `${BAKE_SETTINGS.ray_count}/${BAKE_SETTINGS.ao_ray_dist}/${BAKE_SETTINGS.ao_ray_bias}/${BAKE_SETTINGS.denoise_radius}`;
+export const bakeKey = () => `${BAKE_SETTINGS.ray_count}/${BAKE_SETTINGS.ao_ray_dist}/${BAKE_SETTINGS.ao_ray_bias}/${BAKE_SETTINGS.denoise_radius}`;
 
 const V_IN = "in vec3 a_pos; in vec3 a_nrm; in vec4 a_tan; in vec2 a_uv; in vec3 a_col;\n";
 const VERTEX: Record<string, string> = {
@@ -198,6 +198,13 @@ void main() { vec2 uv = gl_FragCoord.xy / image_size(); outColor = dilate_distan
 }`,
 };
 
+/** the target sizes above which ray cast passes are drawn in tiles (as the renderer draws large targets) */
+const TILE_ABOVE = 1024;
+const TILE = 512;
+
+/** the options of a map's textures */
+export const mapTargetOptions = (map: MapName) => ({ f32: false, nearest: map === "seams", clamp: true });
+
 /** Bakes and caches mesh maps (MMMapGenerator.get_map) */
 export class MeshMapGenerator {
   readonly gpu: Gpu;
@@ -210,13 +217,17 @@ export class MeshMapGenerator {
     this.gpu = gpuFor(renderer);
   }
 
-  has(m: PaintMesh, map: MapName, size: number) {
-    return this.maps.has(`${m.id}:${map}:${size}:${bakeKey()}`);
+  private key(m: { id: string }, map: MapName, size: number) {
+    return `${m.id}:${map}:${size}:${bakeKey()}`;
+  }
+
+  has(m: { id: string }, map: MapName, size: number) {
+    return this.maps.has(this.key(m, map, size));
   }
 
   /** the map as a renderer Target (square, linear filtering, repeat) */
   get(m: PaintMesh, map: MapName, size = 2048): Target {
-    const key = `${m.id}:${map}:${size}:${bakeKey()}`;
+    const key = this.key(m, map, size);
     let t = this.targets.get(key);
     if (t) return t;
     const rt = this.getRT(m, map, size);
@@ -226,14 +237,54 @@ export class MeshMapGenerator {
     return t;
   }
 
+  /** the map, baked now on this thread if it is not there yet */
   getRT(m: PaintMesh, map: MapName, size = 2048): RT {
-    const key = `${m.id}:${map}:${size}:${bakeKey()}`;
+    const key = this.key(m, map, size);
     let rt = this.maps.get(key);
     if (rt) return rt;
     for (const d of MAP_DEFINITIONS[map].dependencies ?? []) this.getRT(m, d, size);
-    rt = this.generate(m, map, size);
+    const steps = this.steps(m, map, size);
+    let r = steps.next();
+    while (!r.done) r = steps.next();
+    rt = r.value;
     this.maps.set(key, rt);
     return rt;
+  }
+
+  /** bakes the map (and what it depends on) in steps, awaiting `pause` between them: the same draws as getRT, so
+   *  the same pixels, without holding the thread for the whole bake */
+  async bake(m: PaintMesh, map: MapName, size: number, pause: () => Promise<void> = gpuPause(this.gpu.gl)): Promise<RT> {
+    const key = this.key(m, map, size);
+    const have = this.maps.get(key);
+    if (have) return have;
+    for (const d of MAP_DEFINITIONS[map].dependencies ?? []) await this.bake(m, d, size, pause);
+    const again = this.maps.get(key);
+    if (again) return again;
+    const steps = this.steps(m, map, size);
+    let r = steps.next();
+    while (!r.done) {
+      await pause();
+      r = steps.next();
+    }
+    this.maps.set(key, r.value);
+    return r.value;
+  }
+
+  /** a map baked elsewhere (the bake worker), as float RGBA rows; uploaded in bands, awaiting `pause` between them */
+  async adopt(m: { id: string }, map: MapName, size: number, data: Float32Array, pause?: () => Promise<void>): Promise<void> {
+    const key = this.key(m, map, size);
+    if (this.maps.has(key)) return;
+    const rt = this.gpu.target(size, size, mapTargetOptions(map));
+    const gl = this.gpu.gl;
+    const band = Math.max(1, Math.floor((1 << 22) / (size * 4)));
+    for (let y = 0; y < size; y += band) {
+      const rows = Math.min(band, size - y);
+      gl.bindTexture(gl.TEXTURE_2D, rt.tex);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y, size, rows, gl.RGBA, gl.FLOAT, data, y * size * 4);
+      if (pause && y + rows < size) await pause();
+    }
+    if (this.maps.has(key)) return this.gpu.deleteRT(rt);
+    this.maps.set(key, rt);
   }
 
   forget(m: PaintMesh) {
@@ -250,13 +301,15 @@ export class MeshMapGenerator {
     this.gpu.forgetMesh(m);
   }
 
-  private generate(m: PaintMesh, map: MapName, size: number): RT {
+  /** the draws of one map; yields after each one that can take long */
+  private *steps(m: PaintMesh, map: MapName, size: number): Generator<void, RT> {
     const gpu = this.gpu;
+    const gl = gpu.gl;
     const def = MAP_DEFINITIONS[map];
     this.onProgress?.(`Generating ${map} map`);
     const pixels = Math.floor(size / 4);
     // the seams map needs exact texel values: nearest filtering, no wrapping
-    const opts = { f32: false, nearest: map === "seams", clamp: true };
+    const opts = mapTargetOptions(map);
     let texture = gpu.target(size, size, opts);
     gpu.clear(texture);
     const prog = gpu.program(GLSL_HEADER + V_IN + VERTEX[def.vertex], GLSL_HEADER + FRAGMENT[def.fragment]);
@@ -274,13 +327,26 @@ export class MeshMapGenerator {
       case "bvh": {
         const bvh = buildBvh(m.positions);
         const bvhTex = gpu.upload(bvh.width, bvh.height, bvh.data, true);
+        yield;
         const diag = Math.hypot(...m.aabb.size);
         const maxDist = map === "thickness" ? -diag : BAKE_SETTINGS.ao_ray_dist;
         let other = gpu.target(size, size, opts);
         gpu.clear(other);
+        // one ray per texel and pass; large maps in tiles, so that no single draw holds the GPU for long
+        const tile = size > TILE_ABOVE ? TILE : size;
         for (let i = 0; i < BAKE_SETTINGS.ray_count; i++) {
           gpu.clear(other);
-          gpu.drawMesh(prog, m, other.fbo, size, size, { bvh_data: bvhTex, tri_offset: { type: "int", value: bvh.triOffset }, prev_iteration_tex: texture, max_dist: maxDist, bias_dist: BAKE_SETTINGS.ao_ray_bias, iteration: { type: "int", value: i + 1 }, mode: { type: "int", value: def.mode! } });
+          const values = { bvh_data: bvhTex, tri_offset: { type: "int" as const, value: bvh.triOffset }, prev_iteration_tex: texture, max_dist: maxDist, bias_dist: BAKE_SETTINGS.ao_ray_bias, iteration: { type: "int" as const, value: i + 1 }, mode: { type: "int" as const, value: def.mode! } };
+          for (let y = 0; y < size; y += tile)
+            for (let x = 0; x < size; x += tile) {
+              if (tile < size) {
+                gl.enable(gl.SCISSOR_TEST);
+                gl.scissor(x, y, tile, tile);
+              }
+              gpu.drawMesh(prog, m, other.fbo, size, size, values);
+              gl.disable(gl.SCISSOR_TEST);
+              yield;
+            }
           [texture, other] = [other, texture];
         }
         gpu.deleteRT(other);
@@ -290,11 +356,13 @@ export class MeshMapGenerator {
         break;
       }
     }
+    yield;
     if (pixels > 0) {
       for (const p of def.postprocess) {
         const extra: Record<string, unknown> = { pixels: { type: "int", value: pixels } };
-        if (p === "dilate" || p === "adjacency_dilate") extra.seams_map = this.maps.get(`${m.id}:seams:${size}`);
+        if (p === "dilate" || p === "adjacency_dilate") extra.seams_map = this.maps.get(this.key(m, "seams", size));
         texture = this.postprocess(texture, p, extra, opts);
+        yield;
       }
     }
     this.onProgress?.("");
