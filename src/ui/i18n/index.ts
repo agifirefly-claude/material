@@ -64,6 +64,12 @@ export function t(s: string, ...args: unknown[]): string {
     const trimmed = s.replace(/[.:…\s]+$/, "");
     const hit = catalog[trimmed] ?? catalog[trimmed.charAt(0).toUpperCase() + trimmed.slice(1)];
     if (hit) out = hit + s.slice(trimmed.length);
+    else {
+      // a generic node's expanded label ("Layer2", "Color 3") is translated by its template ("Layer#", "Color #")
+      const m = /^(.*?\D)(\d+)$/.exec(s);
+      const g = m && catalog[m[1] + "#"];
+      if (g) out = g.replaceAll("#", m[2]);
+    }
   }
   args.forEach((a, i) => (out = out.replaceAll(`{${i}}`, String(a))));
   return out;

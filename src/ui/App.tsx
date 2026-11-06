@@ -22,6 +22,7 @@ import { DialogHost } from "./dialogs/AppDialogs";
 import { openDialog } from "./dialogs/bus";
 import { getPrefs, setPrefs, usePrefs } from "./prefs";
 import * as graphActions from "./graph/actions";
+import { openManual } from "./Manual";
 
 /** asks before replacing a project with changes (confirm_close_project) */
 function confirmDiscard(): boolean {
@@ -38,7 +39,6 @@ function newMaterial(type?: string) {
 import { paint, usePaint } from "./paint/paintStore";
 import { useHostIntegration } from "./hostIntegration";
 
-const MANUAL_URL = "https://rodzill4.github.io/material-maker/doc/";
 import { NewPaintDialog, PaintMenuItems, PaintWorkspace } from "./paint/PaintWorkspace";
 
 function Menu({ label, children }: { label: string; children: (close: () => void) => React.ReactNode }) {
@@ -112,7 +112,7 @@ export function App() {
     about: () => openDialog("about"),
     libraries: () => openDialog("libraries"),
     layouts: () => openDialog("layouts"),
-    manual: () => window.open(MANUAL_URL, "_blank"),
+    manual: () => openManual(),
   });
   const [toast, setToast] = useState("");
   // Material Maker's confirm_quit: the browser asks before leaving with changes
@@ -263,7 +263,7 @@ export function App() {
         <Menu label={t("Help")}>
           {(close) => (
             <>
-              <button onClick={() => (close(), window.open(MANUAL_URL, "_blank"))}>{t("User manual")}</button>
+              <button onClick={() => (close(), openManual())}>{t("User manual")}</button>
               <button onClick={() => (close(), openDialog("about"))}>{t("About…")}</button>
             </>
           )}

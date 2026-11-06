@@ -1,11 +1,15 @@
 // Lists the UI strings that have no translation in a language (Chinese by default):
 // every t("…") / tr("…") key in src, plus the keys in src/ui/i18n/dynamic.ts, looked up the way t() looks them up
 // in Material Maker's catalog (public/data/locale/<lang>.json) and this port's own (src/ui/i18n/extra.ts).
+// Then the same for the node library's strings (scripts/node-strings.mjs: node names, parameters, ports, descriptions,
+// menu paths, and the internal names a parameter or port shows when it has no label), which live in
+// library/locale/<lang>.nodes.json.
 // node scripts/check-i18n.mjs [lang]      exits 1 when something is missing
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseAst } from "rolldown/parseAst";
+import { nodeStrings } from "./node-strings.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const lang = process.argv[2] ?? "zh";
@@ -67,5 +71,10 @@ for (const k of objectLiteral(path.join(root, "src/ui/i18n/dynamic.ts"), "DYNAMI
 
 const missing = [...keys].filter(([k]) => !translated(k));
 for (const [k, where] of missing) console.log(`${JSON.stringify(k)}  (${where})`);
-console.log(`${keys.size} strings, ${missing.length} without a ${lang} translation`);
-process.exit(missing.length ? 1 : 0);
+console.log(`UI: ${keys.size} strings, ${missing.length} without a ${lang} translation`);
+
+const nodes = [...nodeStrings(root)];
+const nodeMissing = nodes.filter(([s]) => !translated(s));
+for (const [s, { where, kind }] of nodeMissing) console.log(`${JSON.stringify(s)}  (${kind}, library/${where})`);
+console.log(`node library: ${nodes.length} strings, ${nodeMissing.length} without a ${lang} translation (add them to library/locale/${lang}.nodes.json)`);
+process.exit(missing.length || nodeMissing.length ? 1 : 0);

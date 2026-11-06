@@ -2,6 +2,11 @@
  * catalogs in public/data/locale). */
 export const EXTRA: Record<string, Record<string, string>> = {
   zh: {
+    "(Ctrl+S)": "（Ctrl+S）",
+    "Copy the image at the chosen resolution, to paste it in another application": "按所选分辨率复制图像，可粘贴到其它应用",
+    "Image copied": "图像已复制",
+    "Could not copy the image: {0}": "无法复制图像：{0}",
+    "Right click: reset to {0}": "右键：重置为 {0}",
     "A Blender material set up with the texture maps": "已接好各张贴图的 Blender 材质",
     "Built-in render pipeline, URP and HDRP materials": "内置渲染管线、URP 和 HDRP 材质",
     "Godot 3 and 4 materials (.tres) and shaders": "Godot 3 和 4 的材质（.tres）和着色器",
@@ -568,5 +573,8 @@ export const EXTRA: Record<string, Record<string, string>> = {
     "Saved {0}": "已保存 {0}",
     "Cannot save {0}: {1}": "无法保存 {0}：{1}",
     Projects: "项目",
+    "Search the manual": "搜索手册",
+    "Cannot load the manual: {0}": "无法加载手册：{0}",
+    "Nothing found": "没有找到",
   },
 };

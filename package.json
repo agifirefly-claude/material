@@ -14,7 +14,8 @@
     "test:e2e": "node tests/e2e.mjs",
     "electron:dev": "npm run build && electron electron/main.cjs",
     "electron:build": "npm run build && node electron/build-mac.mjs",
-    "electron:smoke": "node electron/smoke.mjs"
+    "electron:smoke": "node electron/smoke.mjs",
+    "compare:reference": "node scripts/compare-reference.mjs"
   },
   "repository": {
     "type": "git",
