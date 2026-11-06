@@ -1,6 +1,6 @@
 /* The EXR writer, read back with three.js's EXR loader */
 import { describe, expect, it } from "vitest";
-import { encodeExr, toHalf } from "../../src/ui/preview2d/exr";
+import { encodeExr, toHalf } from "../../src/export/exr";
 import { EXRLoader } from "three/examples/jsm/loaders/EXRLoader.js";
 import { DataUtils, FloatType } from "three";
 

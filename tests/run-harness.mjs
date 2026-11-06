@@ -1,14 +1,14 @@
 // Runs tests/harness.ts in headless Chromium against a Vite dev server: node compile check and example renders.
-import { createRequire } from "node:module";
-const { chromium } = createRequire(import.meta.url)("playwright");
+import { launchChromium } from "../scripts/playwright.mjs";
 import { createServer } from "vite";
 import fs from "node:fs";
 
 const mode = process.argv[2] ?? "all";
-const port = +(process.env.HARNESS_PORT ?? 5199);
-const server = await createServer({ server: { port, host: "127.0.0.1" }, logLevel: "error" });
+const server = await createServer({ server: { port: +(process.env.HARNESS_PORT ?? 5199), host: "127.0.0.1" }, logLevel: "error" });
 await server.listen();
-const browser = await chromium.launch();
+// the port Vite really took: when the asked one is busy (another checkout's harness) it moves to the next one
+const port = server.httpServer.address().port;
+const browser = await launchChromium();
 const page = await browser.newPage();
 page.on("pageerror", (e) => console.error("pageerror", e.message));
 await page.goto(`http://127.0.0.1:${port}/tests/harness.html`);
