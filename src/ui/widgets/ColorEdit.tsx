@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Color } from "../../engine/params/types";
+import { colorDrop } from "./dnd";
 
 export const toHex = (c: Color) => "#" + [c.r, c.g, c.b].map((x) => Math.round(Math.min(1, Math.max(0, x)) * 255).toString(16).padStart(2, "0")).join("");
 export const fromHex = (h: string, a = 1): Color => ({ r: parseInt(h.slice(1, 3), 16) / 255, g: parseInt(h.slice(3, 5), 16) / 255, b: parseInt(h.slice(5, 7), 16) / 255, a });
@@ -12,7 +13,7 @@ export function ColorEdit({ value, onChange }: { value: Color; onChange: (c: Col
   const ref = useRef<HTMLDivElement>(null);
   return (
     <>
-      <div ref={ref} className="color-swatch nodrag" title={toHex(value) + " α " + value.a.toFixed(2)} onClick={() => setOpen(ref.current!.getBoundingClientRect())}>
+      <div ref={ref} className="color-swatch nodrag" title={toHex(value) + " α " + value.a.toFixed(2)} onClick={() => setOpen(ref.current!.getBoundingClientRect())} {...colorDrop(onChange)}>
         <div style={{ background: css(value) }} />
       </div>
       {open && <ColorPopover rect={open} value={value} onChange={onChange} onClose={() => setOpen(null)} />}

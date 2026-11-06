@@ -21,6 +21,7 @@ import { GenComment, GenGraph, type Connection } from "../engine/gen/graph";
 import type { Dict, Gen } from "../engine/gen/base";
 import { GenMaterial } from "../engine/gen/misc";
 import { createGen } from "../engine/loader";
+import { dropFiles, hasFiles } from "./fileDrop";
 import { searchLibrary } from "./Library";
 import type { LibraryItem } from "../engine/registry";
 
@@ -233,12 +234,17 @@ function GraphInner() {
       ref={wrap}
       style={{ flex: 1, minHeight: 0 }}
       onDragOver={(e) => {
-        if (e.dataTransfer.types.includes(LIB_MIME)) {
+        if (e.dataTransfer.types.includes(LIB_MIME) || hasFiles(e)) {
           e.preventDefault();
           e.dataTransfer.dropEffect = "copy";
         }
       }}
       onDrop={(e) => {
+        if (hasFiles(e)) {
+          e.preventDefault();
+          dropFiles(e, rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+          return;
+        }
         const d = e.dataTransfer.getData(LIB_MIME);
         if (!d) return;
         e.preventDefault();

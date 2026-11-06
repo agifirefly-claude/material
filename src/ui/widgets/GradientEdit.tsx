@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Gradient, Interpolation } from "../../engine/params/types";
 import { ColorPopover, css } from "./ColorEdit";
+import { gradientDrop } from "./dnd";
 
 /** The gradient as CSS, sampled so every interpolation mode looks right */
 export function gradientCss(g: Gradient): string {
@@ -22,7 +23,7 @@ export function GradientEdit({ value, onChange, compact }: { value: Gradient; on
     const r = bar.current!.getBoundingClientRect();
     return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
   };
-  if (compact) return <div className="grad-bar" style={{ background: gradientCss(value), cursor: "default" }} title="Gradient (edit in the inspector)" />;
+  if (compact) return <div className="grad-bar" style={{ background: gradientCss(value), cursor: "default" }} title="Gradient (edit in the inspector)" {...gradientDrop(onChange)} />;
   const sorted = value.points;
   return (
     <div className="nodrag" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -30,6 +31,7 @@ export function GradientEdit({ value, onChange, compact }: { value: Gradient; on
         <div
           ref={bar}
           className="grad-bar"
+          {...gradientDrop(onChange)}
           style={{ background: gradientCss(value) }}
           title="Double click to add a point"
           onDoubleClick={(e) => {

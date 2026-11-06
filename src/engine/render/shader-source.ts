@@ -43,7 +43,9 @@ export function withPreview(src: ShaderCode, previewSize = 64): ShaderCode {
 }
 
 export function buildFragmentShader(sc: ShaderCode, output = sc.outputValues.rgba ?? "vec4(0.0)"): BuiltShader {
-  const all = sc.defs + sc.code + output;
+  // a view (the 2D preview, TAA) can say where uv comes from and what is done with the colour
+  const hooks = sc as ShaderCode & { mmMainUv?: string; mmOutputWrap?: string };
+  const all = sc.defs + sc.code + output + (hooks.mmMainUv ?? "") + (hooks.mmOutputWrap ?? "");
   const globals = sc.getGlobalsString(all);
   const used = globals + all;
   const uniforms = sc.uniforms.filter((u) => used.includes(u.name));
@@ -55,9 +57,9 @@ export function buildFragmentShader(sc: ShaderCode, output = sc.outputValues.rgb
   body += "void main() {\n";
   body += "\tfloat _seed_variation_ = seed_variation;\n";
   body += "\tvec4 _controlled_variation_ = vec4(0.0);\n";
-  body += "\tvec2 uv = gl_FragCoord.xy / mm_size;\n";
+  body += `\tvec2 uv = ${hooks.mmMainUv ?? "gl_FragCoord.xy / mm_size"};\n`;
   body += sc.code + "\n";
-  body += `\tmm_frag = ${output};\n`;
+  body += `\tmm_frag = ${hooks.mmOutputWrap ? hooks.mmOutputWrap.replaceAll("$out", output) : output};\n`;
   body += "}\n";
   body = removeConstantDeclarations(body);
   let source = HEADER;

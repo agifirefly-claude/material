@@ -4,6 +4,8 @@ import { GraphView, groupSelection } from "./GraphView";
 import { Library } from "./Library";
 import { Inspector } from "./Inspector";
 import { Preview2D } from "./Preview2D";
+import { ReferencePanel } from "./Reference";
+import { ExportDialogsHost, openExportDialog } from "./preview2d/Dialogs";
 import { Preview3D } from "./Preview3D";
 import { exportForEngine, exportMaterialMaps, openExample, openProjectFile, parseProject, projectText, saveProject } from "./exporting";
 import { exportProfiles } from "../engine/export";
@@ -64,7 +66,7 @@ export function App() {
   useEditor();
   const [examples, setExamples] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [view, setView] = useState<"2d" | "3d">("3d");
+  const [view, setView] = useState<"2d" | "3d" | "ref">("3d");
   const [toast, setToast] = useState("");
   useEffect(() => {
     if (!editor.status) return;
@@ -117,6 +119,8 @@ export function App() {
               <hr />
               <button onClick={() => (close(), setExporting(true))}>Export for a game engine…</button>
               <button onClick={() => (close(), exportMaterialMaps())}>Export material maps (zip)</button>
+              <button onClick={() => (close(), openExportDialog({ kind: "animation" }))}>Export animation of the selected node…</button>
+              <button onClick={() => (close(), openExportDialog({ kind: "taa" }))}>TAA render of the selected node…</button>
               {[512, 1024, 2048, 4096].map((s) => (
                 <button key={s} onClick={() => (close(), exportMaterialMaps(s))}>
                   Export maps at {s}×{s}
@@ -165,6 +169,9 @@ export function App() {
             <button className={view === "2d" ? "on" : ""} onClick={() => setView("2d")}>
               2D node output
             </button>
+            <button className={view === "ref" ? "on" : ""} onClick={() => setView("ref")}>
+              Reference
+            </button>
           </div>
           <div style={{ height: "42%", display: "flex", minHeight: 200 }}>
             <div style={{ display: view === "3d" && !rayMaterial ? "flex" : "none", flex: 1, minWidth: 0 }}>
@@ -172,6 +179,7 @@ export function App() {
             </div>
             {view === "3d" && rayMaterial && <PreviewRay m={rayMaterial} />}
             {view === "2d" && <Preview2D />}
+            {view === "ref" && <ReferencePanel />}
           </div>
           <Inspector />
         </div>
@@ -186,6 +194,7 @@ export function App() {
       </div>
       {examples && <Examples onClose={() => setExamples(false)} />}
       {exporting && <ExportDialog onClose={() => setExporting(false)} />}
+      <ExportDialogsHost />
       {toast && <div className="toast">{toast}</div>}
     </div>
   );

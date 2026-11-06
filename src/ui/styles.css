@@ -169,3 +169,29 @@ select { padding: 2px 4px; }
 .sdf-row button { padding: 0 4px; font-size: 10px; line-height: 14px; background: transparent; border-color: transparent; opacity: .6; }
 .sdf-row:hover button, .sdf-row.sel button { opacity: 1; }
 .sdf-row button:hover { border-color: var(--line); }
+
+/* 2D preview (preview2d/) */
+.pv2-stage { position: relative; }
+.pv2-stage canvas { display: block; }
+.pv2-overlay { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.pv2-overlay .pv2-handle, .pv2-overlay rect[style] { pointer-events: all; cursor: grab; }
+.pv2-complex { position: absolute; top: 4px; right: 4px; z-index: 2; }
+.pv2-menu { padding: 8px; min-width: 250px; }
+.dlg-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 8px; align-items: center; }
+.dlg-grid > label { color: var(--text2); }
+.dlg-thumbs { display: flex; gap: 12px; justify-content: center; margin: 12px 0; }
+.dlg-thumbs figure { margin: 0; text-align: center; color: var(--text2); }
+.dlg-thumb { width: 128px; height: 128px; background: #000; display: block; border-radius: 4px; }
+.taa-iter { font-variant-numeric: tabular-nums; }
+/* reference panel */
+.ref-slots { gap: 6px; }
+.ref-slot { width: 26px; height: 22px; border-radius: 4px; border: 1px solid var(--line); cursor: pointer; }
+.ref-slot.grad { width: 70px; }
+.ref-slot.picking { outline: 2px solid var(--accent); }
+/* tones node */
+.tones { padding: 4px 8px 8px; }
+.tones-bar { display: flex; gap: 4px; margin-bottom: 4px; }
+.tones-hist { position: relative; }
+.tones-hist canvas { position: absolute; left: 0; border-radius: 2px; }
+.tones-cursor { position: absolute; cursor: ew-resize; overflow: visible; }
+.tones-empty { position: absolute; top: 40px; width: 100%; text-align: center; color: var(--text3); font-size: 10px; }
