@@ -129,3 +129,26 @@ describe("MM #1137, #528, #1205: node data fixes", () => {
     expect(text).not.toMatch(/type="Texture"/);
   });
 });
+
+describe("Godot 4 export templates use Godot 4 names", () => {
+  // renamed or removed in Godot 4's BaseMaterial3D (Godot 3 SpatialMaterial names)
+  const GODOT3 = /^(emission_energy|depth_\w+|flags_\w+|params_\w+|ao_on_uv2|detail_enabled|subsurf_scatter_texture_channel) =/m;
+  for (const type of ["material", "material_tesselated"])
+    for (const profile of ["Godot/Godot 4 Standard", "Godot/Godot 4 ORM"])
+      it(`${type} / ${profile}`, () => {
+        const g = new GenGraph();
+        const m = createGen({ type }) as GenMaterial;
+        g.addGenerator(m);
+        for (let i = 0; i < 8 && i < m.getInputDefs().length; i++) {
+          const n = createGen({ type: "perlin" })!;
+          g.addGenerator(n);
+          g.connectChildren(n, 0, m, i);
+        }
+        const tres = planExport(m, profile, "t").find((f) => f.name.endsWith(".tres"));
+        const text = tres?.kind === "text" ? tres.text : "";
+        expect(text).toMatch(/^\[gd_resource type="\w+Material3D" load_steps=\d+ format=3\]/);
+        expect(text).not.toMatch(GODOT3);
+        expect(text).not.toMatch(/ExtResource\( |type="Texture"/);
+        expect(text).toMatch(/emission_energy_multiplier = /);
+      });
+});
