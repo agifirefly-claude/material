@@ -11,8 +11,9 @@
 | 节点库 | Material Maker 的全部 399 个节点定义和 328 个库条目（形状、图案、噪声、滤镜、变换、SDF、3D 纹理、工作流……），可按名称、类型、别名搜索 |
 | 节点图 | 拖拽添加、按端口类型校验连线、子图（双击进入、面包屑和层级面板导航、选中节点打组为子图）、参数面板（Remote）、开关、转接点、传送门、注释；复制、粘贴、复制节点、撤销、重做 |
 | 参数 | 浮点（拖动调节，或输入表达式如 `$rnd(0,1)`）、尺寸、枚举、布尔、颜色、渐变、曲线、多边形和折线、样条、像素图、网格变形；泛型端口数量；随机种子 |
+| Easy SDF | Material Maker 的 SDF 场景构建器：71 种 2D/3D 形状、布尔、平滑布尔、变形、生成器、颜色和纹理元素，在检查器里以场景树编辑 |
 | 分析 | 每个节点：端口表（每个输入来自哪里、每个输出去往哪里）、上游依赖树（可跨子图跳转）、着色器模型（参数在代码里的实际取值、各输出表达式、code、instance、global）、所选输出最终生成的 GLSL（片段或完整着色器）及其 uniform 的实时值；整个图：节点类型统计 |
-| 预览 | 节点内缩略图（与 Material Maker 一样按需显示，也可全部显示）、2D 大图（可平铺查看接缝、可存 PNG）、3D PBR 预览（球、立方体、圆柱、平面、圆环、环结，或载入 OBJ/GLB 模型；两种环境光照；可开置换）；用到时间的节点会持续动画 |
+| 预览 | 节点内缩略图（与 Material Maker 一样按需显示，也可全部显示）、2D 大图（可平铺查看接缝、可存 PNG）、3D PBR 预览（球、立方体、圆柱、平面、圆环、环结，或载入 OBJ/GLB 模型；两种环境光照；可开置换）。3D 纹理材质、光线步进材质、天空材质由渲染器直接光线追踪显示。用到时间的节点会持续动画 |
 | 文件 | 打开和保存 Material Maker 的 `.ptex` 工程（格式相同，双向通用）；43 个官方示例；自动保存到浏览器 |
 | 导出 | 材质贴图打包（albedo、ORM、normal OpenGL/DirectX、height、AO、metallic、roughness、emission、SSS）；以及 Material Maker 的引擎导出目标：Blender、glTF、Godot 3/4、Unity 3D/HDRP/URP、Unreal 4/5，包括动态材质生成的引擎着色器代码 |
 
@@ -39,6 +40,7 @@ npm run dev
 | `node tests/run-harness.mjs nodes` | 在无头 Chromium 里编译全部节点 |
 | `node tests/run-harness.mjs examples` | 渲染全部示例里每个节点的每个输出 |
 | `node tests/run-harness.mjs exports` | 跑一遍所有材质类型的所有导出目标 |
+| `node tests/run-harness.mjs sdf` | 编译每种 Easy SDF 元素和若干组合场景 |
 | `node tests/run-harness.mjs shot bricks 0 512 out.png` | 把示例材质的某个输出渲染成 PNG |
 
 浏览器需要支持 WebGL2 和浮点渲染目标（`EXT_color_buffer_float`），主流桌面浏览器都支持。
@@ -50,6 +52,10 @@ npm run dev
 - **节点**：399 个里 392 个单独编译通过。剩下 7 个在 Material Maker 里也一样：有的只能在 3D 绘制模式下用，有的必须连接输入，有的引用了上游已改名的函数，有的在输入未连接时的默认值本身就不合法。
 - **示例**：43 个里 42 个所有节点、所有输出都能渲染。`doc_tools` 里有一个自定义节点在函数里用了未声明的变量，上游也编译不过。
 - **导出**：7 种材质类型的 39 个导出目标都能生成文件，模板指令全部处理完毕。
+- **Easy SDF**：167 个测试场景（每种元素的最小场景，加上 2D/3D 组合场景，普通和编辑两种模式）都能编译，保存后重新加载结果一致。
+- **单元测试**：每个示例在 Node 里生成全部着色器代码不留未解析变量，保存再加载与原图一致。
+
+Easy SDF 移植时修正了两处上游问题：2D 颜色元素原本复用了 3D 的颜色脚本，会把 2D 坐标传给 3D 噪声函数而编译失败；2D FBM 纹理调用的函数在 `fbm2` 节点里已经改名。
 
 Material Maker 的节点代码按桌面 GLSL 4.50 写（在 Godot 里作为 Vulkan 计算着色器运行），WebGL2 只支持 GLSL ES 3.00。差异由 `src/engine/render/glsl-fix.ts` 处理：
 
@@ -66,6 +72,8 @@ Material Maker 的节点代码按桌面 GLSL 4.50 写（在 Godot 里作为 Vulk
 | `src/engine/params/` | 参数类型：渐变、曲线、多边形、样条、像素、网格变形 | `types/*.gd` |
 | `src/engine/loader.ts` | 由文件数据创建节点 | `engine/loader.gd` |
 | `src/engine/export.ts` | 引擎导出：模板、条件、代码生成、HLSL/Unity/Unreal 转换 | `gen_material.gd` 的导出部分 |
+| `src/engine/sdf/` | Easy SDF 的元素类型和场景到着色器的生成 | `sdf_builder/` |
+| `src/engine/preview3d.ts` | 3D 纹理、光线步进、天空材质的预览着色器 | 这几种材质的 `preview_shader` |
 | `src/engine/render/` | WebGL2 渲染器：着色器拼装、Buffer 依赖链、迭代、缓存、GLSL 兼容 | `engine/pipeline`、`multi_renderer.gd`、`mm_deps` |
 | `src/ui/` | React 界面：节点图（React Flow）、库、检查器、预览、文件 | `material_maker/` 下的界面 |
 
@@ -75,7 +83,7 @@ Material Maker 的节点代码按桌面 GLSL 4.50 写（在 Godot 里作为 Vulk
 
 - 3D 绘制模式（笔刷、图层、在模型上绘制）
 - 网格贴图烘焙（曲率、AO、厚度等）。`Mesh Map` 节点目前输出中性值。
-- 3D 纹理材质、光线步进材质、天空材质的 3D 预览。这三种材质可以正常编辑和导出。
+- Easy SDF 编辑窗口里的 2D/3D 操控手柄和它自带的预览（参数在检查器里调，结果看节点预览），以及 SDF 的节点参数和参数表达式编辑界面（生成代码时会使用，只是没有编辑界面）
 - 从 Material Maker 网站下载共享节点、全局参数、导出目标里的自定义 GDScript、摄像头节点
 
 ## 许可证

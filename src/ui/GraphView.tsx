@@ -166,7 +166,16 @@ function GraphInner() {
     const h = (e: Event) => {
       const item = (e as CustomEvent).detail as Dict;
       const r = wrap.current!.getBoundingClientRect();
-      addFromLibrary(item, rf.screenToFlowPosition({ x: r.left + r.width / 2 - 60, y: r.top + r.height / 2 - 40 }));
+      const at = rf.screenToFlowPosition({ x: r.left + r.width / 2 - 60, y: r.top + r.height / 2 - 40 });
+      // step aside from the nodes already there
+      const taken = (p: { x: number; y: number }) =>
+        rf.getNodes().some((n) => {
+          const w = n.measured?.width ?? 180,
+            h = n.measured?.height ?? 120;
+          return p.x < n.position.x + w + 20 && p.x + 180 > n.position.x - 20 && p.y < n.position.y + h + 20 && p.y + 120 > n.position.y - 20;
+        });
+      for (let i = 0; i < 12 && taken(at); i++) at.x -= 120;
+      addFromLibrary(item, at);
     };
     window.addEventListener("mm-add-node", h);
     return () => window.removeEventListener("mm-add-node", h);
