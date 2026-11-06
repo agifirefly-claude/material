@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { HDRLoader } from "three/examples/jsm/loaders/HDRLoader.js";
+import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { editor, useEditor } from "./store";
 import { findMaterial, previewMaps } from "./materialMaps";
 import { previews } from "./previews";
@@ -15,7 +18,40 @@ const MESHES = {
   torus: () => new THREE.TorusGeometry(0.8, 0.35, 96, 192),
   knot: () => new THREE.TorusKnotGeometry(0.65, 0.22, 384, 64),
 };
-type MeshKind = keyof typeof MESHES;
+type MeshKind = keyof typeof MESHES | "custom";
+
+/** one geometry from a model file, centred and scaled to fit the view */
+async function loadModel(file: File): Promise<THREE.BufferGeometry> {
+  const url = URL.createObjectURL(file);
+  try {
+    let root: THREE.Object3D;
+    if (/\.obj$/i.test(file.name)) root = new OBJLoader().parse(await file.text());
+    else root = (await new GLTFLoader().loadAsync(url)).scene;
+    root.updateMatrixWorld(true);
+    const geos: THREE.BufferGeometry[] = [];
+    root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      let g = m.geometry.clone().applyMatrix4(m.matrixWorld);
+      if (g.index) g = g.toNonIndexed();
+      for (const k of Object.keys(g.attributes)) if (!["position", "normal", "uv"].includes(k)) g.deleteAttribute(k);
+      if (!g.attributes.normal) g.computeVertexNormals();
+      if (!g.attributes.uv) g.setAttribute("uv", new THREE.BufferAttribute(new Float32Array((g.attributes.position.count) * 2), 2));
+      geos.push(g);
+    });
+    if (!geos.length) throw new Error("No mesh in this file");
+    const geo = mergeGeometries(geos)!;
+    geo.computeBoundingBox();
+    const box = geo.boundingBox!;
+    const c = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3()).length();
+    geo.translate(-c.x, -c.y, -c.z);
+    geo.scale(2.6 / size, 2.6 / size, 2.6 / size);
+    return geo;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 const ENVS = { studio: "hdri/photo_studio_01_1k.hdr", forest: "hdri/epping_forest_01_1k.hdr" };
 const MAP_KEYS = ["albedo", "orm", "emission", "normal", "depth"] as const;
 
@@ -108,13 +144,15 @@ export function Preview3D({ active }: { active: boolean }) {
     };
   }, []);
 
+  const [custom, setCustom] = useState<THREE.BufferGeometry | null>(null);
   useEffect(() => {
     const t = three.current!;
-    t.mesh.geometry.dispose();
-    const geo = MESHES[mesh]();
+    if (mesh === "custom" && !custom) return;
+    if (t.mesh.geometry !== custom) t.mesh.geometry.dispose();
+    const geo = mesh === "custom" ? custom! : MESHES[mesh]();
     geo.setAttribute("uv1", geo.attributes.uv);
     t.mesh.geometry = geo;
-  }, [mesh]);
+  }, [mesh, custom]);
 
   useEffect(() => {
     const t = three.current!;
@@ -218,10 +256,33 @@ export function Preview3D({ active }: { active: boolean }) {
   return (
     <div className="preview-pane" style={{ flex: 1 }}>
       <div className="tools">
-        <select value={mesh} onChange={(e) => setMesh(e.target.value as MeshKind)}>
+        <select
+          value={mesh}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "load") {
+              const input = document.createElement("input");
+              input.type = "file";
+              input.accept = ".obj,.glb,.gltf";
+              input.onchange = async () => {
+                const f = input.files?.[0];
+                if (!f) return;
+                try {
+                  setCustom(await loadModel(f));
+                  setMesh("custom");
+                } catch (err) {
+                  editor.setStatus("Cannot load the model: " + err);
+                }
+              };
+              input.click();
+            } else setMesh(v as MeshKind);
+          }}
+        >
           {Object.keys(MESHES).map((k) => (
             <option key={k}>{k}</option>
           ))}
+          {custom && <option value="custom">custom model</option>}
+          <option value="load">Load model… (.obj, .glb)</option>
         </select>
         <select value={env} onChange={(e) => setEnv(e.target.value as keyof typeof ENVS)}>
           {Object.keys(ENVS).map((k) => (

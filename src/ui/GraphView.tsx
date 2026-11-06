@@ -21,6 +21,8 @@ import { GenComment, GenGraph, type Connection } from "../engine/gen/graph";
 import type { Dict, Gen } from "../engine/gen/base";
 import { GenMaterial } from "../engine/gen/misc";
 import { createGen } from "../engine/loader";
+import { searchLibrary } from "./Library";
+import type { LibraryItem } from "../engine/registry";
 
 const nodeTypes = { mm: MMNode };
 export const LIB_MIME = "application/x-material-pro-node";
@@ -60,6 +62,8 @@ function GraphInner() {
   const rf = useReactFlow();
   const wrap = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; gen: Gen } | null>(null);
+  const [adder, setAdder] = useState<{ x: number; y: number; at: { x: number; y: number } } | null>(null);
+  const openAdder = (e: { clientX: number; clientY: number }) => setAdder({ x: e.clientX, y: e.clientY, at: rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }) });
 
   const derived = useMemo<Node<NodeData>[]>(
     () =>
@@ -250,7 +254,15 @@ function GraphInner() {
           const g = editor.graph.getNode(n.id);
           if (g) setMenu({ x: e.clientX, y: e.clientY, gen: g });
         }}
-        onPaneClick={() => setMenu(null)}
+        onPaneClick={(e) => {
+          setMenu(null);
+          if (e.detail === 2) openAdder(e);
+        }}
+        onPaneContextMenu={(e) => {
+          e.preventDefault();
+          openAdder(e);
+        }}
+        zoomOnDoubleClick={false}
         deleteKeyCode={["Delete", "Backspace"]}
         multiSelectionKeyCode={["Shift", "Meta", "Control"]}
         minZoom={0.1}
@@ -263,6 +275,54 @@ function GraphInner() {
         <MiniMap pannable zoomable nodeColor="#444" maskColor="#0008" />
       </ReactFlow>
       {menu && <NodeMenu {...menu} onClose={() => setMenu(null)} />}
+      {adder && (
+        <AddNodePopup
+          x={adder.x}
+          y={adder.y}
+          onPick={(item) => {
+            addFromLibrary(item, adder.at);
+            setAdder(null);
+          }}
+          onClose={() => setAdder(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** the quick add box: type to search the library, Enter adds the first match */
+function AddNodePopup({ x, y, onPick, onClose }: { x: number; y: number; onPick: (i: LibraryItem) => void; onClose: () => void }) {
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState(0);
+  const results = useMemo(() => searchLibrary(q).slice(0, 30), [q]);
+  return (
+    <div className="menu-list" style={{ position: "fixed", left: Math.min(x, window.innerWidth - 300), top: Math.min(y, window.innerHeight - 380), width: 290 }}>
+      <input
+        autoFocus
+        type="search"
+        placeholder="Add a node…"
+        value={q}
+        style={{ width: "100%", marginBottom: 4 }}
+        onChange={(e) => {
+          setQ(e.target.value);
+          setSel(0);
+        }}
+        onBlur={() => setTimeout(onClose, 150)}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Escape") onClose();
+          if (e.key === "ArrowDown") setSel((s) => Math.min(results.length - 1, s + 1));
+          if (e.key === "ArrowUp") setSel((s) => Math.max(0, s - 1));
+          if (e.key === "Enter" && results[sel]) onPick(results[sel]);
+        }}
+      />
+      {results.map((it, i) => (
+        <button key={it.tree_item} onMouseDown={() => onPick(it)} style={{ background: i === sel ? "var(--bg4)" : undefined, display: "flex", gap: 6, alignItems: "center" }}>
+          {it.icon_data && <img src={"data:image/png;base64," + it.icon_data} alt="" style={{ width: 28, height: 14, objectFit: "cover" }} />}
+          {it.tree_item}
+        </button>
+      ))}
+      {q && !results.length && <div className="label">No node matches</div>}
     </div>
   );
 }

@@ -5,12 +5,6 @@ import { resolve } from "node:path";
 export default defineConfig({
   base: "./",
   plugins: [react()],
-  build: {
-    rollupOptions: {
-      input: {
-        main: resolve(__dirname, "index.html"),
-      },
-    },
-  },
   server: { port: 5173, host: "127.0.0.1" },
+  build: { chunkSizeWarningLimit: 2000, rollupOptions: { input: { main: resolve(__dirname, "index.html") } } },
 });

@@ -28,6 +28,22 @@ function buildTree(items: LibraryItem[]): Folder {
   return root;
 }
 
+/** library items matching a query, best first: names, then node types, then paths and aliases */
+export function searchLibrary(q: string): LibraryItem[] {
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const scored: [number, LibraryItem][] = [];
+  for (const it of registry.library) {
+    const name = (it.display_name ?? it.tree_item.split("/").pop() ?? "").toLowerCase();
+    const hay = (it.tree_item + " " + name + " " + it.type + " " + (registry.aliases[it.tree_item] ?? "")).toLowerCase();
+    if (!words.every((w) => hay.includes(w))) continue;
+    let score = 0;
+    for (const w of words) score += name === w ? 0 : name.startsWith(w) ? 1 : name.includes(w) ? 2 : it.type.includes(w) ? 3 : it.tree_item.toLowerCase().includes(w) ? 4 : 6;
+    scored.push([score * 100 + it.tree_item.split("/").length, it]);
+  }
+  return scored.sort((a, b) => a[0] - b[0]).map((x) => x[1]);
+}
+
 function addNode(item: LibraryItem) {
   window.dispatchEvent(new CustomEvent("mm-add-node", { detail: item }));
 }
@@ -68,22 +84,7 @@ export function Library() {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<Set<string>>(new Set());
   const tree = useMemo(() => buildTree(registry.library), []);
-  const results = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    if (!s) return null;
-    const words = s.split(/\s+/);
-    const scored: [number, LibraryItem][] = [];
-    for (const it of registry.library) {
-      const name = (it.display_name ?? it.tree_item.split("/").pop() ?? "").toLowerCase();
-      const hay = (it.tree_item + " " + name + " " + it.type + " " + (registry.aliases[it.tree_item] ?? "")).toLowerCase();
-      if (!words.every((w) => hay.includes(w))) continue;
-      // names that match first, then node types, then paths and aliases; shorter paths first
-      let score = 0;
-      for (const w of words) score += name === w ? 0 : name.startsWith(w) ? 1 : name.includes(w) ? 2 : it.type.includes(w) ? 3 : it.tree_item.toLowerCase().includes(w) ? 4 : 6;
-      scored.push([score * 100 + it.tree_item.split("/").length, it]);
-    }
-    return scored.sort((a, b) => a[0] - b[0]).map((x) => x[1]);
-  }, [q]);
+  const results = useMemo(() => (q.trim() ? searchLibrary(q) : null), [q]);
   const toggle = (p: string) =>
     setOpen((o) => {
       const n = new Set(o);
