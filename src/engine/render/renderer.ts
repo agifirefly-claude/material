@@ -75,6 +75,8 @@ export class Renderer {
   /** called when something loaded asynchronously (an image) and renders should be redone */
   onAsyncUpdate: (() => void) | null = null;
   time = 0;
+  /** set when a render (or one of the buffers it read) depends on the time */
+  usedTime = false;
   /** errors met while rendering buffers, by buffer key */
   errors = new Map<string, ShaderError>();
   stats = { programs: 0, renders: 0 };
@@ -225,7 +227,10 @@ export class Renderer {
   private renderCached(key: string, sc: ShaderCode, size: number, f32: boolean, mipmap: boolean, stack: Set<string>): Resolved {
     const built = buildFragmentShader(sc);
     const deps = this.resolveUniforms(built.uniforms, stack);
-    const sig = fnv(built.source + "|" + deps.sig + "|" + size + f32 + mipmap);
+    // a shader that reads the time is a new render at every new time
+    const timeSig = built.body.includes("elapsed_time") ? "t" + this.time : "";
+    if (timeSig) this.usedTime = true;
+    const sig = fnv(built.source + "|" + deps.sig + "|" + size + f32 + mipmap + timeSig);
     const cached = this.cache.get(key);
     if (cached && cached.sig === sig) return { target: cached.target, sig };
     const target = this.reuse(key, size, f32, mipmap);
@@ -253,7 +258,9 @@ export class Renderer {
     const initDeps = this.resolveUniforms(builtInit.uniforms, stack);
     // the loop reads its own previous result: resolve the rest of its samplers now, the loop texture each iteration
     const loopDepsSig = this.resolveUniforms(builtLoop.uniforms, stack).sig;
-    const sig = fnv(builtInit.source + builtLoop.source + initDeps.sig + loopDepsSig + [iterations, size, f32, mipmap, shrink].join(","));
+    const timeSig = (builtInit.body + builtLoop.body).includes("elapsed_time") ? "t" + this.time : "";
+    if (timeSig) this.usedTime = true;
+    const sig = fnv(builtInit.source + builtLoop.source + initDeps.sig + loopDepsSig + [iterations, size, f32, mipmap, shrink].join(",") + timeSig);
     const cached = this.cache.get(key);
     if (cached && cached.sig === sig) return { target: cached.target, sig };
     let current: Target | null = null;
@@ -520,10 +527,11 @@ export class Renderer {
   }
 
   /** renders and keeps the result under `key`, re-rendering only when the shader or what it reads changed */
-  renderKeyed(key: string, sc: ShaderCode, size: number, preview = true): { target: Target | null; changed: boolean; error: ShaderError | null } {
+  renderKeyed(key: string, sc: ShaderCode, size: number, preview = true): { target: Target | null; changed: boolean; error: ShaderError | null; usesTime: boolean } {
     const before = this.cache.get(key)?.sig;
+    this.usedTime = false;
     const r = this.renderCached(key, preview ? withPreview(sc, size) : sc, size, false, false, new Set());
-    return { target: r.target, changed: before !== r.sig, error: this.errors.get(key) ?? null };
+    return { target: r.target, changed: before !== r.sig, error: this.errors.get(key) ?? null, usesTime: this.usedTime };
   }
   forget(key: string): void {
     const c = this.cache.get(key);

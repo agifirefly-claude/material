@@ -3,7 +3,8 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { HDRLoader } from "three/examples/jsm/loaders/HDRLoader.js";
 import { editor, useEditor } from "./store";
-import { findMaterial, hasStandardMaps, renderMap } from "./materialMaps";
+import { findMaterial, previewMaps } from "./materialMaps";
+import { previews } from "./previews";
 import { isColor } from "../engine/params/types";
 
 const MESHES = {
@@ -39,6 +40,7 @@ export function Preview3D({ active }: { active: boolean }) {
   const [tiling, setTiling] = useState(1);
   const [spin, setSpin] = useState(false);
   const [note, setNote] = useState("");
+  const [animTick, setAnimTick] = useState(0);
 
   // set up three.js once
   useEffect(() => {
@@ -137,14 +139,22 @@ export function Preview3D({ active }: { active: boolean }) {
     const timer = setTimeout(() => {
       const m = findMaterial(editor.root);
       if (!m) return setNote("This project has no material node.");
-      if (!hasStandardMaps(m)) return setNote(`“${m.getTypeName()}” has no texture maps to show here; the preview shows the standard PBR material only.`);
+      const spec = previewMaps(m);
+      if (!spec) return setNote(`“${m.getTypeName()}” is evaluated in 3D space, which this preview does not do yet. Its exports work.`);
       setNote("");
       const size = Math.min(res, m.imageSize);
-      const outputs: Record<string, number> = { albedo: 0, orm: 1, emission: 2, normal: 3, depth: 4 };
+      r.time = performance.now() / 1000;
+      const present = new Set<string>();
+      let usesTime = false;
       for (const k of MAP_KEYS) {
         try {
-          const target = renderMap(r, m, outputs[k], size, "3d:" + k);
+          const sc = spec.maps[k]();
+          if (!sc || !sc.outputType) continue;
+          const res = r.renderKeyed("3d:" + k, sc, size);
+          usesTime ||= res.usesTime;
+          const target = res.target;
           if (!target) continue;
+          present.add(k);
           const c = t.canvases[k];
           const resized = c.width !== size;
           if (resized) c.width = c.height = size;
@@ -164,9 +174,25 @@ export function Preview3D({ active }: { active: boolean }) {
       const p = m.parameters;
       const mat = t.material;
       mat.map = t.textures.albedo;
-      mat.aoMap = mat.roughnessMap = mat.metalnessMap = t.textures.orm;
-      mat.emissiveMap = t.textures.emission;
-      mat.normalMap = t.textures.normal;
+      mat.aoMap = mat.roughnessMap = mat.metalnessMap = present.has("orm") ? t.textures.orm : null;
+      mat.emissiveMap = present.has("emission") ? t.textures.emission : null;
+      mat.normalMap = present.has("normal") ? t.textures.normal : null;
+      if (usesTime && previews.animate) setAnimTick((x) => x + 1);
+      if (spec.unlit) {
+        // unlit: the colour is all there is
+        mat.emissiveMap = t.textures.albedo;
+        mat.emissive.setRGB(1, 1, 1);
+        mat.color.setRGB(0, 0, 0);
+        mat.metalness = 0;
+        mat.roughness = 1;
+        mat.envMapIntensity = 0;
+        mat.normalMap = null;
+        mat.transparent = true;
+        mat.alphaMap = null;
+        mat.needsUpdate = true;
+        return;
+      }
+      mat.envMapIntensity = 1;
       for (const tx of Object.values(t.textures)) tx.repeat.set(tiling, tiling);
       const ac = isColor(p.albedo_color) ? p.albedo_color : { r: 1, g: 1, b: 1, a: 1 };
       mat.color.setRGB(ac.r, ac.g, ac.b, THREE.SRGBColorSpace);
@@ -176,18 +202,18 @@ export function Preview3D({ active }: { active: boolean }) {
       const ns = Number(p.normal ?? 1);
       mat.normalScale.set(ns, ns);
       mat.aoMapIntensity = Number(p.ao ?? 1);
-      mat.transparent = !!p.flags_transparent && m.isConnected("opacity_tex");
+      mat.transparent = (!!p.flags_transparent || !("flags_transparent" in p)) && m.isConnected("opacity_tex");
       mat.alphaMap = null;
       mat.sheen = 0;
-      if (displace && m.isConnected("depth_tex")) {
+      if (displace && present.has("depth") && m.isConnected("depth_tex")) {
         mat.displacementMap = t.textures.depth;
         mat.displacementScale = -0.2 * Number(p.depth_scale ?? 0.5);
         mat.displacementBias = 0.1 * Number(p.depth_scale ?? 0.5);
       } else mat.displacementMap = null;
       mat.needsUpdate = true;
-    }, 120);
+    }, animTick ? 70 : 120);
     return () => clearTimeout(timer);
-  }, [editor.version, active, res, displace, tiling]);
+  }, [editor.version, active, res, displace, tiling, animTick]);
 
   return (
     <div className="preview-pane" style={{ flex: 1 }}>

@@ -3,6 +3,8 @@ import { GenContext } from "../engine/context";
 import { GenMaterial } from "../engine/gen/misc";
 import type { Renderer, Target } from "../engine/render/renderer";
 import type { GenGraph } from "../engine/gen/graph";
+import { expressionShaderCode } from "../engine/export";
+import type { ShaderCode } from "../engine/shader-code";
 
 export function findMaterial(root: GenGraph): GenMaterial | undefined {
   return root.children.find((c) => c instanceof GenMaterial) as GenMaterial | undefined;
@@ -33,4 +35,30 @@ export function renderMap(r: Renderer, m: GenMaterial, output: number, size: num
   if (!sc.outputType) return null;
   if (key) return r.renderKeyed(key, sc, size).target;
   return r.render(sc, size);
+}
+
+export type PreviewMaps = { unlit: boolean; maps: Record<"albedo" | "orm" | "emission" | "normal" | "depth", () => ShaderCode | null> };
+
+/** How the 3D view shows a material type: the static ones by their outputs, the dynamic ones by baking their inputs
+ *  with the same expressions the static material's outputs use. null: this type cannot be previewed in 3D. */
+export function previewMaps(m: GenMaterial): PreviewMaps | null {
+  const out = (i: number) => () => m.getShaderCode("uv", i, new GenContext());
+  const expr = (type: string, code: string) => () => expressionShaderCode(m, { type, code });
+  const inputs = new Set(m.getInputDefs().map((d) => d.name));
+  if (hasStandardMaps(m)) return { unlit: false, maps: { albedo: out(0), orm: out(1), emission: out(2), normal: out(3), depth: out(4) } };
+  if (inputs.has("albedo_tex") && inputs.has("normal_tex")) {
+    const opacity = inputs.has("opacity_tex") ? "$opacity_tex($uv)" : "1.0";
+    return {
+      unlit: false,
+      maps: {
+        albedo: expr("rgba", `vec4($albedo_tex($uv), ${opacity})`),
+        orm: expr("rgb", "vec3($ao_tex($uv), $roughness_tex($uv), $metallic_tex($uv))"),
+        emission: expr("rgb", "$emission_tex($uv)"),
+        normal: expr("rgb", "$normal_tex($uv)*vec3(-1.0, 1.0, -1.0)+vec3(1.0, 0.0, 1.0)"),
+        depth: inputs.has("depth_tex") ? expr("f", "clamp($depth_tex($uv), 0.0, 1.0)") : () => null,
+      },
+    };
+  }
+  if (inputs.has("color_tex")) return { unlit: true, maps: { albedo: expr("rgba", "$color_tex($uv)"), orm: () => null, emission: () => null, normal: () => null, depth: () => null } };
+  return null;
 }
