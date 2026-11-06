@@ -540,3 +540,58 @@ window.moved = async () => {
   }
   return out;
 };
+
+declare global {
+  interface Window {
+    taaLoop: (onPage: boolean, size: number, ms: number) => Promise<{ samples: number; maxGap: number; frames: number; onWorker: boolean }>;
+  }
+}
+/** the TAA window's loop for `ms` milliseconds (as src/ui/preview2d/Dialogs.tsx runs it): samples taken, and how
+ *  long the page went without running a timer */
+window.taaLoop = async (onPage, size, ms) => {
+  await window.ready;
+  const m = findMaterial(loadProject(await fetch(`/public/data/examples/marble.json`).then((x) => x.json())))!;
+  const t = new TaaRender(svc.session({ onPage }), m, 0, size, size);
+  const ctx = ctx2d(size);
+  const st = { gamma: 1, denoise: 0 as const, radius: 1, sigma: 1, kSigma: 1, threshold: 0.1 };
+  // compile first, so both measure sampling only
+  t.step();
+  await t.show(st, ctx);
+  let last = performance.now(),
+    maxGap = 0,
+    frames = 0,
+    running = true;
+  const tick = setInterval(() => {
+    const now = performance.now();
+    maxGap = Math.max(maxGap, now - last);
+    last = now;
+  }, 10);
+  const raf = () => {
+    frames++;
+    if (running) requestAnimationFrame(raf);
+  };
+  requestAnimationFrame(raf);
+  const first = t.iteration;
+  const end = performance.now() + ms;
+  let n = 1;
+  while (performance.now() < end) {
+    await new Promise((res) => requestAnimationFrame(res));
+    const start = performance.now();
+    const before = t.iteration;
+    if (t.session.onWorker) for (let i = 0; i < n; i++) t.step();
+    else
+      do t.step();
+      while (performance.now() - start < 8);
+    if (Math.floor(t.iteration / 16) !== Math.floor(before / 16)) await t.show(st, ctx);
+    else await t.session.flush();
+    const took = performance.now() - start;
+    if (took < 30) n = Math.min(64, n * 2);
+    else if (took > 60) n = Math.max(1, n >> 1);
+  }
+  maxGap = Math.max(maxGap, performance.now() - last);
+  running = false;
+  clearInterval(tick);
+  const onWorker = t.session.onWorker;
+  t.dispose();
+  return { samples: t.iteration - first, maxGap, frames, onWorker };
+};

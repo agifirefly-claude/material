@@ -76,8 +76,7 @@ export class Recorder extends HostBase {
   }
 
   /** draws a shader into a target the caller owns, without caching; `add` sums onto what is there (Renderer.renderInto) */
-  renderInto(sc: ShaderCode, target: Target, add = false): void {
-    const built = buildFragmentShader(sc);
+  renderInto(sc: ShaderCode, target: Target, add = false, built: BuiltShader = buildFragmentShader(sc)): void {
     const deps = this.resolveUniforms(built.uniforms, new Set());
     this.lastKey = "";
     this.draw(built, deps.values, target, add);

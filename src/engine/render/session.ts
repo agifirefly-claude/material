@@ -5,6 +5,7 @@
  * was read. Get one from RenderService.session() or RenderService.withSession(). */
 import type { ShaderCode, TextureRef } from "../shader-code";
 import type { Recorder } from "./recorder";
+import { buildFragmentShader, type BuiltShader } from "./shader-source";
 import { RenderFailure } from "./service";
 import type { Renderer } from "./renderer";
 import { ShaderError, type Target } from "./types";
@@ -38,6 +39,7 @@ export class RenderSession {
   private mainOut: (SessionPixels | null)[] = [];
   private mainTargets = new Set<Target>();
   private disposed = false;
+  private builtShaders = new WeakMap<ShaderCode, BuiltShader>();
 
   constructor(
     private main: Renderer,
@@ -65,17 +67,24 @@ export class RenderSession {
     return { kind: "texture", key, target: t } as unknown as TextureRef;
   }
 
-  /** draws a shader into a target; `add` sums onto what is there */
-  renderInto(sc: ShaderCode, t: Target, add = false): void {
+  /** draws a shader into a target; `add` sums onto what is there. With `keep`, the shader is built once and reused
+   *  for later draws of the same ShaderCode (only its uniforms' values may change meanwhile: TAA's jitter) */
+  renderInto(sc: ShaderCode, t: Target, add = false, opts: { keep?: boolean } = {}): void {
+    let built = opts.keep ? this.builtShaders.get(sc) : undefined;
+    if (!built) {
+      built = buildFragmentShader(sc);
+      if (opts.keep) this.builtShaders.set(sc, built);
+    }
     if (this.link) {
       this.link.rec.time = this.time;
-      this.link.rec.renderInto(sc, t, add);
+      this.link.rec.renderInto(sc, t, add, built);
       return;
     }
     const saved = this.main.time;
     this.main.time = this.time;
     try {
-      this.main.renderInto(sc, t, add);
+      // what Renderer.renderInto does, with the shader already built
+      this.main.draw(built, this.main.resolveUniforms(built.uniforms, new Set()).values, t, add);
     } finally {
       this.main.time = saved;
     }

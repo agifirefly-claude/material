@@ -112,7 +112,7 @@ export class TaaRender {
     u.value = [this.random() - 0.5, this.random() - 0.5];
     this.session.time = time;
     // the first sample replaces what the target held, the others add to it
-    this.session.renderInto(this.accumulate, this.acc, this.iteration > 1);
+    this.session.renderInto(this.accumulate, this.acc, this.iteration > 1, { keep: true });
   }
   /** the average so far, into `avg` */
   resolve(s: TaaSettings): Target {
