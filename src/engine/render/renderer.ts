@@ -211,7 +211,8 @@ export class Renderer {
       if (g instanceof GenIterateBuffer) return this.renderIterateBuffer(g, stack);
       if (g instanceof GenImage) return this.imageTexture(g);
       if (g instanceof GenText) return this.textTexture(g);
-      if (g instanceof GenMeshMap || g instanceof GenWebcam || g instanceof GenTexture) return { target: null, sig: "empty" };
+      if (g instanceof GenWebcam) return this.webcamTexture();
+      if (g instanceof GenMeshMap || g instanceof GenTexture) return { target: null, sig: "empty" };
       return { target: null, sig: "none" };
     } finally {
       stack.delete(ref.key);
@@ -295,6 +296,48 @@ export class Renderer {
     if (current) this.cache.set(key, { sig, target: current });
     else this.cache.delete(key);
     return { target: current, sig };
+  }
+
+  /* ---------- webcam (gen_webcam.gd): the browser's camera, asked for the first time a webcam node is rendered ---------- */
+  private webcam: { video: HTMLVideoElement | null; target: Target | null; state: "asking" | "on" | "denied" } | null = null;
+  private webcamTexture(): Resolved {
+    if (!this.webcam) {
+      this.webcam = { video: null, target: null, state: "asking" };
+      const cam = this.webcam;
+      if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) cam.state = "denied";
+      else
+        navigator.mediaDevices
+          .getUserMedia({ video: true })
+          .then((stream) => {
+            const v = document.createElement("video");
+            v.muted = true;
+            v.playsInline = true;
+            v.srcObject = stream;
+            return v.play().then(() => {
+              cam.video = v;
+              cam.state = "on";
+              this.onAsyncUpdate?.();
+            });
+          })
+          .catch(() => (cam.state = "denied"));
+    }
+    const cam = this.webcam;
+    if (cam.state !== "on" || !cam.video || !cam.video.videoWidth) return { target: null, sig: "webcam:" + cam.state };
+    const gl = this.gl;
+    const size = 1 << Math.ceil(Math.log2(Math.max(cam.video.videoWidth, cam.video.videoHeight, 1)));
+    if (!cam.target || cam.target.size !== Math.min(size, 1024)) {
+      this.deleteTarget(cam.target);
+      cam.target = this.createTarget(Math.min(size, 1024), false, true);
+    }
+    const tmp = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, tmp);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, cam.video);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    this.blit(tmp, cam.target, cam.target.size);
+    gl.deleteTexture(tmp);
+    // a live picture: renders that read it refresh like time based ones
+    this.usedTime = true;
+    return { target: cam.target, sig: "webcam:" + this.time };
   }
 
   private imageTexture(g: GenImage): Resolved {
