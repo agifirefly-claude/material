@@ -8,9 +8,10 @@ import type { PaintMesh } from "../../engine/paint/mesh";
 import type { Dict } from "../../engine/gen/base";
 import type { LibraryItem } from "../../engine/registry";
 import { downloadBlob } from "../exporting";
+import { fileName, host, projectPath, setProjectPath } from "../platform";
 import { newProject } from "../../engine/loader";
 import { setCurrentMesh } from "../../engine/paint/mesh";
-import { geometryToPaintMesh, loadModelGeometry, normalizeGeometry } from "./meshes";
+import { BUILTIN_MESHES, geometryToPaintMesh, loadModelGeometry, normalizeGeometry } from "./meshes";
 import { t } from "../i18n";
 import { brushThumbnail } from "./brushPreview";
 
@@ -139,26 +140,53 @@ class PaintState {
     editor.closeProject(i, () => newProject());
   }
 
-  save() {
+  /** saves the paint project as one zip. The desktop app writes it back to its file once it has one (opened from a
+   * zip, or saved before) and asks where the first time or for Save As; a browser downloads it. */
+  async save(saveAs = false) {
     const p = this.project;
     if (!p) return;
     const zip = p.save(p.title);
-    downloadBlob(new Blob([zip as BlobPart], { type: "application/zip" }), `${p.title}.mmpp.zip`);
+    if (!host) {
+      downloadBlob(new Blob([zip as BlobPart], { type: "application/zip" }), `${p.title}.mmpp.zip`);
+      this.emit();
+      return;
+    }
+    try {
+      const path = await host.save(zip, `${p.title}.mmpp.zip`, saveAs ? null : projectPath(p));
+      if (!path) {
+        p.needSave = true; // cancelled: nothing was written
+        return;
+      }
+      setProjectPath(p, path);
+      p.title = fileName(path).replace(/(\.mmpp)?\.zip$/i, "");
+      const i = editor.currentIndex;
+      if (this.project === p) editor.setTabTitle(i, p.title);
+      editor.setStatus(t("Saved {0}", path));
+    } catch (e) {
+      p.needSave = true;
+      editor.setStatus(t("Cannot save {0}: {1}", p.title, String(e)));
+    }
     this.emit();
   }
 
   /** a saved project: a zip, or a .mmpp with its layer PNGs and model picked together */
-  async load(files: { name: string; data: Uint8Array }[]) {
+  async load(files: { name: string; data: Uint8Array }[]): Promise<PaintProject> {
     const all = unpackFiles(files);
     const mmppName = [...all.keys()].find((k) => k.endsWith(".mmpp"));
     if (!mmppName) throw new Error("No .mmpp file");
     const data = JSON.parse(new TextDecoder().decode(all.get(mmppName)!));
     const modelBytes = data.model ? findFile(all, data.model) : null;
-    if (!modelBytes) throw new Error(`The model ${data.model || ""} is not among the files`);
-    const modelName = String(data.model).split(/[\\/]/).pop()!;
-    const geo = normalizeGeometry(await loadModelGeometry(modelName, modelBytes));
-    const mesh = geometryToPaintMesh(geo, modelName);
-    const p = new PaintProject(editor.renderer!, mesh, { name: modelName, data: modelBytes });
+    const builtin = typeof data.builtin_mesh === "string" && !modelBytes ? BUILTIN_MESHES[data.builtin_mesh] : undefined;
+    let mesh: PaintMesh;
+    let model: ModelFile | null = null;
+    if (builtin) mesh = geometryToPaintMesh(builtin(), data.builtin_mesh);
+    else {
+      if (!modelBytes) throw new Error(`The model ${data.model || ""} is not among the files`);
+      const modelName = String(data.model).split(/[\\/]/).pop()!;
+      mesh = geometryToPaintMesh(normalizeGeometry(await loadModelGeometry(modelName, modelBytes)), modelName);
+      model = { name: modelName, data: modelBytes };
+    }
+    const p = new PaintProject(editor.renderer!, mesh, model);
     p.title = mmppName.split("/").pop()!.replace(/\.mmpp$/, "");
     const dir = mmppName.replace(/\.mmpp$/, "");
     await p.loadLayers(data, async (name) => {
@@ -173,6 +201,7 @@ class PaintState {
       }
     }
     await this.open(p);
+    return p;
   }
 
   /** the current brush, as a user brush in the brush list (Tools > Add current brush to library) */

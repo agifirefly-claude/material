@@ -217,7 +217,8 @@ function createWindow() {
   win.webContents.on("did-finish-load", () => {
     const paths = pendingOpen.splice(0);
     for (const p of paths) if (fs.existsSync(p)) win.webContents.send("mp:open-files", filePayload(allow(p)));
-    if (SELFTEST) require("./selftest.cjs").run(win, SELFTEST);
+    // the self test opens files the way Finder does (sendOpen), so they count as chosen by the user
+    if (SELFTEST) require("./selftest.cjs").run(win, SELFTEST, { open: sendOpen });
   });
   win.loadURL(`${ORIGIN}/index.html`);
 }

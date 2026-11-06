@@ -1,4 +1,5 @@
 // The node editor (Ctrl+E), the Easy SDF scene editor, and paint mode.
+import fs from "node:fs";
 import { addFromLibrary, assert, eq, ed, idle, menu, node, open, select, stablePixels, until } from "../helpers.mjs";
 
 export const tests = [
@@ -59,7 +60,9 @@ export const tests = [
     },
   },
   {
-    name: "paint: a new paint project, a stroke, a new layer, and back to the material tab",
+    name: "paint: a new paint project, a stroke, a new layer, save and open it again, back to the material tab",
+    // creating and reopening a paint project each render its layers on SwiftShader
+    timeout: 180_000,
     async run({ page, base }) {
       await open(page, base);
       await menu(page, "File", "New paint project…");
@@ -91,6 +94,17 @@ export const tests = [
       const n = await layers.count();
       await page.locator(".panel.right button", { hasText: "+ Paint" }).click();
       await until(async () => (await layers.count()) === n + 1, "a new paint layer");
+      // save it (a download in the browser) and open it again: a project on a built-in mesh has no model file
+      const download = page.waitForEvent("download");
+      await menu(page, "File", "Save paint project");
+      const saved = await download;
+      const zip = fs.readFileSync(await saved.path());
+      const tabs = await page.locator(".project-tab").count();
+      const chooser = page.waitForEvent("filechooser");
+      await menu(page, "File", "Open paint project");
+      await (await chooser).setFiles({ name: saved.suggestedFilename(), mimeType: "application/zip", buffer: zip });
+      await until(async () => (await page.locator(".project-tab").count()) === tabs + 1, "the saved paint project opens again");
+      await until(async () => (await page.locator(".layer-row").count()) === n + 1, "with its layers");
       // back to the material
       await page.locator(".project-tab", { hasText: "bricks" }).click();
       await until(async () => (await view.count()) === 0, "the paint view is gone");

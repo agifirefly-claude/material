@@ -441,6 +441,8 @@ export class PaintProject {
       model: this.model?.name ?? "",
       settings: { ...this.settings },
     };
+    // a built-in mesh has no model file: its name is enough to make it again
+    if (!this.model) data.builtin_mesh = this.mesh.name;
     if (this.idMapFile) {
       data.idmap = this.idMapFile.name;
       files[this.idMapFile.name] = this.idMapFile.data;
