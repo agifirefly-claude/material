@@ -10,6 +10,7 @@ import { Recorder, RecorderLink, MainOnlyError, type Recording } from "./recorde
 import type { Renderer } from "./renderer";
 import { ShaderError, type Target } from "./types";
 import type { BatchStats, Failure, FromWorker, Lane, ToWorker } from "./protocol";
+import { RenderSession } from "./session";
 
 export interface PreviewJob {
   key: string;
@@ -90,6 +91,8 @@ export class RenderService {
   private lost = false;
   private fallbackTimer: ReturnType<typeof setTimeout> | null = null;
   private _time = 0;
+  /** sessions whose targets are in the worker */
+  private sessions = new Set<RenderSession>();
 
   constructor(public main: Renderer) {
     this.link.onLoaded = () => this.onAsyncUpdate?.();
@@ -214,6 +217,7 @@ export class RenderService {
     this.rec.reset();
     this.link.reset();
     this.inflight.clear();
+    for (const s of this.sessions) s.lost();
   }
 
   private batch(rec: Recording, lane: Lane, onProgress?: (f: number) => void, signal?: AbortSignal) {
@@ -448,6 +452,53 @@ export class RenderService {
     const r = this.main.renderKeyed(key, sc, size);
     this.onMain.add(key);
     return { image: r.target ? this.main.toImageData(r.target) : null, changed: r.changed };
+  }
+
+  /* ---------- sessions ---------- */
+
+  /** renders whose targets the caller keeps between calls (TAA, frames that are not square, a material's buffers):
+   *  in the worker's exports' lane where it can, else (or with `onPage`) on the page's Renderer. Dispose of it.
+   *  A session has a Recorder of its own (its targets live until it is disposed, not in the shared cache), on the
+   *  same RecorderLink: target ids, pictures and the targets in flight are shared, so the worker orders its batches
+   *  among the lanes' (hazards.ts) like any other. It sends each program the first time it draws it. */
+  session(opts: { onPage?: boolean } = {}): RenderSession {
+    if (opts.onPage || this.mode !== "worker" || this.lost) return new RenderSession(this.main, null);
+    const rec = new Recorder(this.link);
+    rec.time = this._time;
+    const s = new RenderSession(this.main, {
+      rec,
+      run: async (r, o) => {
+        if (o.signal?.aborted) throw new RenderFailure("cancelled", "cancelled");
+        // pictures that loaded meanwhile go with it: the worker orders them before what reads them
+        const recording = r.take();
+        if (!recording.ops.length) return { outputs: [], errors: [], drawKeys: recording.drawKeys };
+        const res = await this.batch(recording, "bg", o.onProgress, o.signal);
+        return { outputs: res.outputs, errors: res.errors, drawKeys: recording.drawKeys };
+      },
+      release: (ids) => {
+        // deleted once the batches before it are done with them
+        if (!ids.length || !this.worker || this.lost) return;
+        for (const id of ids) rec.deleteTarget({ id } as unknown as Target);
+        this.batch(rec.take(), "bg").catch(() => {});
+      },
+      discard: (r) => r.drop(),
+    });
+    this.sessions.add(s);
+    s.onDispose = () => this.sessions.delete(s);
+    return s;
+  }
+
+  /** runs `work` in a session, disposed afterwards; on the page when it reads a texture only the page has */
+  async withSession<T>(work: (s: RenderSession) => Promise<T>, opts: { onPage?: boolean } = {}): Promise<T> {
+    const s = this.session(opts);
+    try {
+      return await work(s);
+    } catch (e) {
+      if (!(e instanceof MainOnlyError) || !s.onWorker) throw e;
+    } finally {
+      s.dispose();
+    }
+    return this.withSession(work, { onPage: true });
   }
 
   /* ---------- tests ---------- */

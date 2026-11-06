@@ -19,19 +19,24 @@ const CURSORS = [
 const W = 256,
   H = 80;
 
-/** 256 bins per channel (r, g, b, a) of the image the generator produces, normalised to its tallest bin */
-export function histogram(g: Gen, output: number, size = 128): Float32Array[] | null {
-  const r = editor.renderer;
+/** 256 bins per channel (r, g, b, a) of the image the generator produces, normalised to its tallest bin. Rendered by
+ *  the render service: in the worker where the browser can. */
+export async function histogram(g: Gen, output: number, size = 128): Promise<Float32Array[] | null> {
+  const r = editor.renders;
   if (!r) return null;
   const sc = g.getShaderCode("uv", output, new GenContext());
   if (!sc.outputType) return null;
-  const t = r.render(withPreview(sc, size), size, { preview: false });
-  const px = r.readPixels(t);
-  r.deleteTarget(t);
+  return binsOf(await r.floats(withPreview(sc, size), size, { preview: false }));
+}
+
+/** 256 bins per channel of float pixels, normalised to the tallest bin */
+export function binsOf(px: Float32Array): Float32Array[] {
   const bins = [0, 1, 2, 3].map(() => new Float32Array(256));
   for (let i = 0; i < px.length; i += 4) for (let c = 0; c < 4; c++) bins[c][Math.max(0, Math.min(255, Math.round(px[i + c] * 255)))]++;
   for (const b of bins) {
-    const m = Math.max(...b) || 1;
+    let m = 0;
+    for (let i = 0; i < 256; i++) m = Math.max(m, b[i]);
+    m ||= 1;
     for (let i = 0; i < 256; i++) b[i] /= m;
   }
   return bins;
@@ -51,14 +56,17 @@ export function TonesEditor({ gen }: { gen: Gen }) {
   // the histogram follows the input
   useEffect(() => {
     if (!src) return setBins(null);
+    let stale = false;
     const t = setTimeout(() => {
-      try {
-        setBins(histogram(src.generator, src.outputIndex));
-      } catch {
-        setBins(null);
-      }
+      histogram(src.generator, src.outputIndex).then(
+        (b) => !stale && setBins(b),
+        () => !stale && setBins(null),
+      );
     }, 150);
-    return () => clearTimeout(t);
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
   }, [src?.generator, src?.outputIndex, editor.contentVersion]);
 
   useEffect(() => {

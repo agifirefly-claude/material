@@ -3,7 +3,7 @@
  * (windows/new_painter) and the exports (panels/paint/export.gd). */
 import { useEffect, useState } from "react";
 import * as THREE from "three";
-import { zipSync } from "fflate";
+import { zip } from "fflate";
 import { paint, pickFiles, usePaint } from "./paintStore";
 import { PaintView } from "./PaintView";
 import { Paint2D } from "./Paint2D";
@@ -13,7 +13,7 @@ import { GraphView } from "../GraphView";
 import { Inspector } from "../Inspector";
 import { BUILTIN_MESHES, geometryToPaintMesh, loadModelGeometry, normalizeGeometry } from "./meshes";
 import { downloadBlob } from "../exporting";
-import { encodePng } from "../../engine/paint/project";
+import { encodePngAsync } from "../../engine/paint/paint-client";
 import { exportProfiles, planExport, expressionShaderCode } from "../../engine/export";
 import { GenContext } from "../../engine/context";
 import { editor } from "../store";
@@ -194,19 +194,35 @@ export async function openPaintProject() {
 
 const MAP_FILES = ["albedo", "metallic", "roughness", "emission", "normal_map", "depth", "occlusion"] as const;
 
-/** the composited maps as PNGs in a zip */
-export function exportPaintMaps() {
+/** a zip packed off the page's thread */
+const zipAsync = (files: Record<string, Uint8Array>) => new Promise<Uint8Array>((res, rej) => zip(files, { level: 0 }, (e, out) => (e ? rej(e) : res(out))));
+
+/** the composited maps as PNGs in a zip (read asynchronously, encoded in the paint worker) */
+export async function exportPaintMaps() {
   const p = paint.project;
   if (!p) return;
-  const files: Record<string, Uint8Array> = {};
-  for (const m of MAP_FILES) {
-    const t = p.compositor.maps[m];
-    if (t) files[`${p.title}_${m === "normal_map" ? "normal" : m}.png`] = encodePng(p.gpu, t);
+  editor.setStatus(t("Exporting…"));
+  try {
+    await p.compositeAsync();
+    const files: Record<string, Uint8Array> = {};
+    const shots = MAP_FILES.flatMap((m) => {
+      const tex = p.compositor.maps[m];
+      return tex ? [[`${p.title}_${m === "normal_map" ? "normal" : m}.png`, p.copyTexture(tex)] as const] : [];
+    });
+    try {
+      for (const [name, tex] of shots) files[name] = await encodePngAsync(p.renderer, tex);
+    } finally {
+      for (const [, tex] of shots) p.renderer.deleteTarget(tex);
+    }
+    downloadBlob(new Blob([(await zipAsync(files)) as BlobPart], { type: "application/zip" }), `${p.title}_maps.zip`);
+    editor.setStatus("");
+  } catch (e) {
+    editor.setStatus(t("Cannot save {0}: {1}", p.title, (e as Error).message));
   }
-  downloadBlob(new Blob([zipSync(files, { level: 0 }) as BlobPart], { type: "application/zip" }), `${p.title}_maps.zip`);
 }
 
-/** export_material: the maps through a material node and one of its export targets */
+/** export_material: the maps through a material node and one of its export targets. Each texture is rendered on
+ *  the page (the material reads the painted maps, which live there), then read and encoded without stalling it. */
 export async function exportPaintForEngine(profile: string) {
   const p = paint.project;
   if (!p) return;
@@ -214,16 +230,25 @@ export async function exportPaintForEngine(profile: string) {
   const { material } = p.exportGraph();
   const plan = planExport(material, profile, p.title);
   const files: Record<string, Uint8Array> = {};
-  for (const f of plan) {
-    if (f.kind === "text") files[f.name] = new TextEncoder().encode(f.text);
-    else if (f.kind === "texture") {
-      const sc = f.output !== null ? material.getShaderCode("uv", f.output, new GenContext()) : expressionShaderCode(material, f.expression!);
-      const t = r.render(sc, p.size);
-      files[f.name] = encodePng(p.gpu, t);
-      r.deleteTarget(t);
+  editor.setStatus(t("Exporting…"));
+  try {
+    for (const f of plan) {
+      if (f.kind === "text") files[f.name] = new TextEncoder().encode(f.text);
+      else if (f.kind === "texture") {
+        const sc = f.output !== null ? material.getShaderCode("uv", f.output, new GenContext()) : expressionShaderCode(material, f.expression!);
+        const tex = r.render(sc, p.size);
+        try {
+          files[f.name] = await encodePngAsync(r, tex);
+        } finally {
+          r.deleteTarget(tex);
+        }
+      }
     }
+    downloadBlob(new Blob([(await zipAsync(files)) as BlobPart], { type: "application/zip" }), `${p.title}_${profile.replaceAll("/", "_").replaceAll(" ", "_")}.zip`);
+    editor.setStatus("");
+  } catch (e) {
+    editor.setStatus(t("Cannot save {0}: {1}", p.title, (e as Error).message));
   }
-  downloadBlob(new Blob([zipSync(files, { level: 0 }) as BlobPart], { type: "application/zip" }), `${p.title}_${profile.replaceAll("/", "_").replaceAll(" ", "_")}.zip`);
 }
 
 export function paintExportProfiles(): string[] {

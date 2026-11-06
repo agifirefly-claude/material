@@ -14,7 +14,11 @@ import { ShaderCode, ShaderUniform } from "../shader-code";
 import type { Renderer, Target } from "../render/renderer";
 import { GLSL_HEADER, Gpu, gpuFor, type RT, type UniformInput } from "./gpu";
 import { removeConstantDeclarations } from "../util";
-import { mapGeneratorFor } from "./mapgen";
+import { mapGeneratorFor, type MapName } from "./mapgen";
+import { bakeMap } from "./paint-client";
+
+/** the mesh maps painting reads */
+export const PAINTER_MAPS: MapName[] = ["seams", "position", "normal", "tangent"];
 import type { PaintMesh } from "./mesh";
 
 export interface PaintChannelDef {
@@ -256,6 +260,26 @@ export class Painter {
     this.updateViewTextures();
   }
 
+  /** bake the mesh maps the painter needs in the background (the editor); until they are there, nothing is painted
+   *  and ready() is false. Otherwise they are baked on first use. */
+  backgroundMaps = false;
+  /** whether the mesh maps painting needs are baked (starts baking them in the background when they are not) */
+  ready(): boolean {
+    if (!this.backgroundMaps || !this.mesh) return true;
+    const mg = mapGeneratorFor(this.renderer);
+    const s = this.textureSize;
+    const missing = PAINTER_MAPS.filter((n) => !mg.has(this.mesh!, n, s));
+    if (!missing.length) return true;
+    const m = this.mesh;
+    void Promise.all(missing.map((n) => bakeMap(this.renderer, m, n, s))).then(
+      () => this.onMapsReady?.(),
+      (e) => console.error("mesh map bake", e),
+    );
+    return false;
+  }
+  /** called when maps baked in the background are ready */
+  onMapsReady: (() => void) | null = null;
+
   private maps() {
     const mg = mapGeneratorFor(this.renderer);
     const m = this.mesh!;
@@ -464,7 +488,7 @@ ${this.replacePredefs(patternCode)}
   /* ---------- painting ---------- */
   /** paints one dab (or segment from the previous position) of the stroke into the active channels (in_thread_paint) */
   paint(o: PaintOptions, endOfStroke = false): string[] {
-    if (!this.mesh || !this.brushNode) return [];
+    if (!this.mesh || !this.brushNode || !this.ready()) return [];
     const gpu = this.gpu;
     const maps = this.maps();
     const p = this.params;
@@ -632,7 +656,7 @@ ${
   private previewRT: RT | null = null;
   /** the brush footprint over the view at a position, as an image the size of the view (row 0 at the top) */
   brushPreview(pos: [number, number], ppos: [number, number], patternShown = false, textureSpace = false): RT | null {
-    if (!this.brushNode || !this.mesh) return null;
+    if (!this.brushNode || !this.mesh || !this.ready()) return null;
     const [w, h] = this.viewportSize;
     if (!this.previewRT || this.previewRT.w !== w || this.previewRT.h !== h) {
       this.gpu.deleteRT(this.previewRT);

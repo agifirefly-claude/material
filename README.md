@@ -45,17 +45,18 @@ npm run dev
 | `node tests/run-harness.mjs examples` | 渲染全部示例里每个节点的每个输出 |
 | `node tests/run-harness.mjs exports` | 跑一遍所有材质类型的所有导出目标 |
 | `node tests/run-harness.mjs sdf` | 编译每种 Easy SDF 元素和若干组合场景 |
+| `npm run test:tiling` | 检查每个生成节点和砖块节点是否四边无缝：每个输出在 uv 和平移一个单元后的渲染应相同（不该平铺的节点列在脚本里，附原因） |
 | `node tests/run-harness.mjs bake <目录>` | 给一个球体烘焙全部网格贴图，存成 PNG |
 | `node tests/run-harness.mjs paint <目录>` | 在球体上用库里的笔刷画几笔、撤销、加遮罩和程序图层、保存再读回，存成 PNG |
 | `node tests/run-harness.mjs shot bricks 0 512 out.png` | 把示例材质的某个输出渲染成 PNG |
 | `npm run cli -- export "materials/*.ptex" -t "Godot/Godot 4 Standard" -o build` | 命令行批量导出，见 [docs/命令行.md](docs/命令行.md) |
 | `npm run test:ui` | 界面回归测试（Playwright 驱动真实界面，约 5 分钟），见 [tests/ui/README.md](tests/ui/README.md) |
 | `npm run test:cli` | 命令行导出的测试 |
-| `npm run test:worker` | Worker 渲染与页面渲染逐像素一致、导出等图片加载、删除节点后释放渲染结果 |
+| `npm run test:worker` | Worker 渲染与页面渲染逐像素一致、导出等图片加载、删除节点后释放渲染结果；网格贴图在 paint worker 里烘焙、绘制工程异步合成和保存，结果与页面同步路径一致且页面不卡 |
 | `npm run perf` | 测量导出和预览时页面的卡顿（Worker 与页面渲染对比），结果见 [docs/性能.md](docs/性能.md) |
 | `npm run test:engines` | 用本机的 Godot、Blender 检查导出能否正确导入（未安装的跳过），其他引擎的手动清单见 [docs/本地验证.md](docs/本地验证.md) |
 
-CI（`.github/workflows/ci.yml`）在每次推送和合并请求时运行类型检查、单元测试、翻译检查、构建、节点/示例/SDF、e2e、命令行测试、Worker 渲染测试和界面回归测试。不安装游戏引擎，引擎导入在本地检查。
+CI（`.github/workflows/ci.yml`）在每次推送和合并请求时运行类型检查、单元测试、翻译检查、构建、节点/示例/SDF、平铺检查、e2e、命令行测试、Worker 渲染测试和界面回归测试。不安装游戏引擎，引擎导入在本地检查。
 
 浏览器需要支持 WebGL2 和浮点渲染目标（`EXT_color_buffer_float`），主流桌面浏览器都支持。
 
@@ -114,7 +115,7 @@ Material Maker 的节点代码按桌面 GLSL 4.50 写（在 Godot 里作为 Vulk
 - **图层**：绘制图层（albedo、金属度/粗糙度、自发光、法线、深度/AO 五个通道）、程序图层（由笔刷图填满，改图即更新）、遮罩图层（作用于所在图层），支持嵌套、拖动排序、显隐、每个通道的不透明度
 - **合成与导出**：从下往上合成出 7 张材质贴图，再由法线和深度生成法线贴图；可导出贴图包，也可以经材质节点走 Material Maker 的全部引擎导出目标
 - **撤销**：按图层逐笔撤销、重做
-- **文件**：保存为 zip，里面是 Material Maker 的 `.mmpp`、各图层 PNG 和模型。打开时可以选这个 zip，也可以把 Material Maker 存的 `.mmpp`、它的图层 PNG 和模型一起选上
+- **文件**：保存为 zip，里面是 Material Maker 的 `.mmpp`、各图层 PNG 和模型（内置模型只记名字）。Mac 应用里“保存”写回原文件。打开时可以选这个 zip，也可以把 Material Maker 存的 `.mmpp`、它的图层 PNG 和模型一起选上
 
 绘制用到的网格贴图（以及 `Mesh Map` 节点）按 `map_generator` 的流程在 WebGL2 里烘焙：位置、法线、切线、曲率、AO、弯曲法线、厚度、邻接、接缝。材质模式下，`Mesh Map` 节点使用 3D 预览里当前显示的模型。
 

@@ -101,7 +101,7 @@
 			},
 			{
 				"longdesc": "An output that should be plugged into a Fill companion node",
-				"rgba": "vec4($(name_uv)_rect.xy, $(name_uv)_rect.zw - $(name_uv)_rect.xy)",
+				"rgba": "vec4(fract(round($(name_uv)_rect.xy*4096.0)/4096.0), $(name_uv)_rect.zw - $(name_uv)_rect.xy)",
 				"shortdesc": "Brick Fill",
 				"type": "rgba"
 			},

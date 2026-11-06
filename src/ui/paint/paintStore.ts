@@ -3,14 +3,17 @@
 import { useSyncExternalStore } from "react";
 import { editor } from "../store";
 import { PaintProject, findFile, unpackFiles, type Float32ArrayImage, type ModelFile } from "../../engine/paint/project";
-import { installMeshMaps } from "../../engine/paint/meshmaps";
+import { installMeshMaps, meshMapBaked } from "../../engine/paint/meshmaps";
+import { bakeMap, encodePngAsync } from "../../engine/paint/paint-client";
+import { PAINTER_MAPS } from "../../engine/paint/painter";
 import type { PaintMesh } from "../../engine/paint/mesh";
 import type { Dict } from "../../engine/gen/base";
 import type { LibraryItem } from "../../engine/registry";
 import { downloadBlob } from "../exporting";
+import { fileName, host, projectPath, setProjectPath } from "../platform";
 import { newProject } from "../../engine/loader";
 import { setCurrentMesh } from "../../engine/paint/mesh";
-import { geometryToPaintMesh, loadModelGeometry, normalizeGeometry } from "./meshes";
+import { BUILTIN_MESHES, geometryToPaintMesh, loadModelGeometry, normalizeGeometry } from "./meshes";
 import { t } from "../i18n";
 import { brushThumbnail } from "./brushPreview";
 
@@ -64,7 +67,15 @@ class PaintState {
     this.emit();
   }
 
+  /** the mesh maps painting needs are being baked (in the paint worker) */
+  baking = false;
+
   constructor() {
+    // Mesh Map nodes baked in the background: draw what used them again
+    meshMapBaked.add(() => {
+      this.project?.brushChanged();
+      editor.emit();
+    });
     // switching tabs switches the paint workspace on or off and the brush graph shown
     editor.subscribe(() => this.sync());
     editor.addTabHooks({
@@ -90,7 +101,30 @@ class PaintState {
 
   /** opens a paint project in a new tab (create_paint_project / do_load_painting) */
   private async open(project: PaintProject) {
-    installMeshMaps();
+    installMeshMaps({ background: true });
+    // the editor composites asynchronously and bakes mesh maps in the paint worker: the page keeps running
+    project.deferComposite = true;
+    project.painter.backgroundMaps = true;
+    project.painter.onMapsReady = () => {
+      this.baking = false;
+      // a procedural layer is filled once the maps are there
+      project.brushChanged();
+      project.update();
+      this.setStatus("");
+      this.emit();
+    };
+    if (!project.painter.ready()) {
+      // the maps painting reads are baked (in the paint worker) before the tab opens; the page keeps running
+      this.baking = true;
+      this.setStatus(t("Baking mesh maps…"));
+      try {
+        await Promise.all(PAINTER_MAPS.map((n) => bakeMap(project.renderer, project.mesh, n, project.size)));
+      } catch (e) {
+        console.error("mesh map bake", e);
+      }
+      this.baking = false;
+      this.setStatus("");
+    }
     await this.loadBrushes();
     if (!project.brushGraph) project.setBrush(this.brushes.find((b) => b.tree_item === "Simple/Uniform") ?? this.brushes[0], false);
     project.onChange(() => {
@@ -139,26 +173,55 @@ class PaintState {
     editor.closeProject(i, () => newProject());
   }
 
-  save() {
+  /** saves the paint project as one zip without stalling the page (layers read asynchronously, PNGs encoded in the
+   * paint worker). The desktop app writes it back to its file once it has one (opened from a zip, or saved before)
+   * and asks where the first time or for Save As; a browser downloads it. */
+  async save(saveAs = false) {
     const p = this.project;
     if (!p) return;
-    const zip = p.save(p.title);
-    downloadBlob(new Blob([zip as BlobPart], { type: "application/zip" }), `${p.title}.mmpp.zip`);
+    this.setStatus(t("Saving {0}…", p.title));
+    try {
+      const zip = await p.saveAsync(p.title, (tex) => encodePngAsync(p.renderer, tex));
+      if (!host) {
+        downloadBlob(new Blob([zip as BlobPart], { type: "application/zip" }), `${p.title}.mmpp.zip`);
+        this.setStatus("");
+      } else {
+        const path = await host.save(zip, `${p.title}.mmpp.zip`, saveAs ? null : projectPath(p));
+        if (!path) {
+          p.needSave = true; // cancelled: nothing was written
+          this.setStatus("");
+        } else {
+          setProjectPath(p, path);
+          p.title = fileName(path).replace(/(\.mmpp)?\.zip$/i, "");
+          if (this.project === p) editor.setTabTitle(editor.currentIndex, p.title);
+          this.setStatus(t("Saved {0}", path));
+        }
+      }
+    } catch (e) {
+      p.needSave = true;
+      this.setStatus(t("Cannot save {0}: {1}", p.title, (e as Error).message ?? String(e)));
+    }
     this.emit();
   }
 
   /** a saved project: a zip, or a .mmpp with its layer PNGs and model picked together */
-  async load(files: { name: string; data: Uint8Array }[]) {
+  async load(files: { name: string; data: Uint8Array }[]): Promise<PaintProject> {
     const all = unpackFiles(files);
     const mmppName = [...all.keys()].find((k) => k.endsWith(".mmpp"));
     if (!mmppName) throw new Error("No .mmpp file");
     const data = JSON.parse(new TextDecoder().decode(all.get(mmppName)!));
     const modelBytes = data.model ? findFile(all, data.model) : null;
-    if (!modelBytes) throw new Error(`The model ${data.model || ""} is not among the files`);
-    const modelName = String(data.model).split(/[\\/]/).pop()!;
-    const geo = normalizeGeometry(await loadModelGeometry(modelName, modelBytes));
-    const mesh = geometryToPaintMesh(geo, modelName);
-    const p = new PaintProject(editor.renderer!, mesh, { name: modelName, data: modelBytes });
+    const builtin = typeof data.builtin_mesh === "string" && !modelBytes ? BUILTIN_MESHES[data.builtin_mesh] : undefined;
+    let mesh: PaintMesh;
+    let model: ModelFile | null = null;
+    if (builtin) mesh = geometryToPaintMesh(builtin(), data.builtin_mesh);
+    else {
+      if (!modelBytes) throw new Error(`The model ${data.model || ""} is not among the files`);
+      const modelName = String(data.model).split(/[\\/]/).pop()!;
+      mesh = geometryToPaintMesh(normalizeGeometry(await loadModelGeometry(modelName, modelBytes)), modelName);
+      model = { name: modelName, data: modelBytes };
+    }
+    const p = new PaintProject(editor.renderer!, mesh, model);
     p.title = mmppName.split("/").pop()!.replace(/\.mmpp$/, "");
     const dir = mmppName.replace(/\.mmpp$/, "");
     await p.loadLayers(data, async (name) => {
@@ -173,6 +236,7 @@ class PaintState {
       }
     }
     await this.open(p);
+    return p;
   }
 
   /** the current brush, as a user brush in the brush list (Tools > Add current brush to library) */

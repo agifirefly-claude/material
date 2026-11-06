@@ -16,7 +16,9 @@ export async function openHostFiles(files: HostFile[]) {
   if (!main) return;
   try {
     if (PAINT.test(main.name)) {
-      await paint.load(files.map((f) => ({ name: f.name, data: f.data })));
+      const p = await paint.load(files.map((f) => ({ name: f.name, data: f.data })));
+      // a zip is the whole project, so Save writes back to it; a .mmpp with its images beside it is saved as a zip
+      if (/\.zip$/i.test(main.name)) setProjectPath(p, main.path);
       return;
     }
     for (const f of files.filter((x) => PROJECT.test(x.name))) {
@@ -57,7 +59,7 @@ export function useHostIntegration(handlers: HostHandlers) {
     const update = () => {
       timer = null;
       const p = paint.project;
-      if (p) return host!.setDocument(null, !!p.needSave);
+      if (p) return host!.setDocument(projectPath(p), !!p.needSave);
       const saved = savedVersionOf(editor.root);
       host!.setDocument(projectPath(editor.root), saved === undefined ? editor.canUndo : saved !== projectText());
     };

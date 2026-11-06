@@ -8,7 +8,8 @@
  * same targets (hazards.ts). A cached render that a batch still in flight uses is not drawn over: it is drawn into a
  * new target, and the old one deleted once nothing uses it, so a long export never holds a thumbnail up. */
 import { HostBase } from "./base";
-import type { BuiltShader } from "./shader-source";
+import { buildFragmentShader, type BuiltShader } from "./shader-source";
+import type { ShaderCode, TextureRef } from "../shader-code";
 import type { GenImage } from "../gen/texture";
 import { pow2, type PictureSource } from "./sources";
 import { fnv, ShaderError, type Resolved, type Target } from "./types";
@@ -87,6 +88,8 @@ export interface RecorderSnapshot {
   loopTextures: Map<string, Target>;
   errors: Map<string, ShaderError>;
   sent: Set<string>;
+  programsSent: Set<string>;
+  owned: Set<number>;
 }
 
 export class Recorder extends HostBase {
@@ -95,6 +98,10 @@ export class Recorder extends HostBase {
   /** the key each draw rendered for (to file errors the worker reports under it) */
   private drawKeys = new Map<number, string>();
   private lastKey = "";
+  /** the worker targets it created and has not deleted (a RenderSession frees them all at the end) */
+  readonly owned = new Set<number>();
+  /** programs this recorder has put in its operations */
+  private programsSent = new Set<string>();
 
   constructor(readonly link: RecorderLink) {
     super();
@@ -104,12 +111,30 @@ export class Recorder extends HostBase {
     return this.link.pictures;
   }
 
-  protected mainOnly<T>(what: string): T {
+  protected mainOnly<T>(what: string, get?: () => T): T {
+    // a texture the caller holds is fine when it is one of the worker's (a RenderSession's target)
+    if (what === "texture" && get) {
+      const r = get() as unknown as Resolved;
+      if (r.target && typeof (r.target as RemoteTarget).id === "number") return r as unknown as T;
+    }
     throw new MainOnlyError(what);
+  }
+
+  /** draws a shader into a target the caller owns, without caching; `add` sums onto what is there (Renderer.renderInto) */
+  renderInto(sc: ShaderCode, target: Target, add = false, built: BuiltShader = buildFragmentShader(sc)): void {
+    const deps = this.resolveUniforms(built.uniforms, new Set());
+    this.lastKey = "";
+    this.draw(built, deps.values, target, add);
+  }
+
+  /** the texture a sampler uniform refers to (a buffer, an image...), recorded if needed (Renderer.textureFor) */
+  textureFor(ref: TextureRef): Target | null {
+    return this.resolve(ref, new Set()).target;
   }
 
   createTarget(size: number, f32 = false, mipmap = false, height = size): Target {
     const id = this.link.newId();
+    this.owned.add(id);
     this.ops.push({ op: "create", id, size, height, f32, mipmap });
     const t = { id, tex: null, fbo: null, size, f32, mipmap } as unknown as RemoteTarget;
     if (height !== size) t.height = height;
@@ -126,6 +151,7 @@ export class Recorder extends HostBase {
   }
   deleteTarget(t: Target | null | undefined): void {
     if (!t) return;
+    this.owned.delete((t as RemoteTarget).id);
     this.ops.push({ op: "delete", id: (t as RemoteTarget).id });
   }
   cached(key: string) {
@@ -143,7 +169,10 @@ export class Recorder extends HostBase {
     const hash = fnv(built.source);
     const failed = this.link.failed.get(hash);
     if (failed) throw failed;
-    if (!this.link.sent.has(hash)) {
+    // each recorder sends a program the first time it draws it, even when another recorder has: the other one's batch
+    // may run in the other lane, after this one (an export drawing what a preview batch still queued defines)
+    if (!this.programsSent.has(hash)) {
+      this.programsSent.add(hash);
       this.link.sent.add(hash);
       this.link.samplers.set(hash, built.uniforms.map((u) => u.type === "sampler2D"));
       this.ops.push({ op: "program", hash, source: built.source, uniforms: built.uniforms.map((u) => ({ name: u.name, type: u.type, size: u.size })) });
@@ -193,7 +222,7 @@ export class Recorder extends HostBase {
   /** files the worker's compile errors under the keys that rendered them, so they show as Renderer's would */
   applyErrors(errors: DrawError[], drawKeys: Map<number, string>): void {
     for (const e of errors) {
-      const err = new ShaderError(e.message, "", e.log);
+      const err = new ShaderError(e.message, e.source ?? "", e.log);
       this.link.failed.set(e.program, err);
       let key = drawKeys.get(e.target);
       for (const [k, c] of this.cache) if ((c.target as RemoteTarget).id === e.target) key = k;
@@ -213,8 +242,21 @@ export class Recorder extends HostBase {
     }
     for (const [k, t] of [...this.loopTextures]) if (rec.written.has((t as RemoteTarget).id)) this.loopTextures.delete(k);
     this.link.pictures.forget(rec.written);
-    for (const id of new Set([...rec.written, ...rec.deleted])) this.link.pending.push({ op: "delete", id });
+    for (const id of new Set([...rec.written, ...rec.deleted])) {
+      this.owned.delete(id);
+      this.link.pending.push({ op: "delete", id });
+    }
     return n > 0;
+  }
+
+  /** drops what was recorded and not taken (a RenderSession's recording that will not be sent): its programs are
+   *  sent again the next time they are drawn */
+  drop(): void {
+    for (const o of this.ops) if (o.op === "program") this.programsSent.delete(o.hash);
+    for (const t of this.transfer) (t as ImageBitmap).close?.();
+    this.ops = [];
+    this.transfer = [];
+    this.drawKeys.clear();
   }
 
   /** the state to go back to if what is recorded next is not sent (nothing must be recorded and not taken yet) */
@@ -224,6 +266,8 @@ export class Recorder extends HostBase {
       loopTextures: new Map(this.loopTextures),
       errors: new Map(this.errors),
       sent: new Set(this.link.sent),
+      programsSent: new Set(this.programsSent),
+      owned: new Set(this.owned),
     };
   }
   /** forgets what was recorded since the snapshot: the worker never gets it */
@@ -232,6 +276,9 @@ export class Recorder extends HostBase {
     this.loopTextures = s.loopTextures;
     this.errors = s.errors;
     this.link.sent = s.sent;
+    this.programsSent = s.programsSent;
+    this.owned.clear();
+    for (const id of s.owned) this.owned.add(id);
     for (const t of this.transfer) (t as ImageBitmap).close?.();
     this.ops = [];
     this.transfer = [];
@@ -244,6 +291,8 @@ export class Recorder extends HostBase {
     this.cache.clear();
     this.loopTextures.clear();
     this.drawKeys.clear();
+    this.owned.clear();
+    this.programsSent.clear();
     this.webcam.reset();
     for (const t of this.transfer) (t as ImageBitmap).close?.();
     this.ops = [];

@@ -5,21 +5,23 @@ import type { Dict, Gen } from "../../engine/gen/base";
 import { GenContext } from "../../engine/context";
 import { GenMaterial } from "../../engine/gen/misc";
 import { editor } from "../store";
+import { rootOf } from "../../engine/render/maps";
 import { libraries, USER_LIBRARY } from "../library/manager";
 import { downloadBlob } from "../exporting";
 import { t, tPath, useLang } from "../i18n";
 
-/** a 64×64 PNG of a node's first output, as Material Maker's library icons are */
-export function nodeIcon(gen: Gen): string | undefined {
-  const r = editor.renderer;
+/** a 64×64 PNG of a node's first output, as Material Maker's library icons are (rendered in the worker where the
+ *  browser can) */
+export async function nodeIcon(gen: Gen): Promise<string | undefined> {
+  const r = editor.renders;
   if (!r) return undefined;
   const outs = gen instanceof GenMaterial ? gen.getOutputDefs(true) : gen.getOutputDefs();
   if (!outs.length) return undefined;
   try {
     // output 0 through its preview, at 64×64, like main_window.add_selection_to_library (generator.render(self, 0, 64, true))
-    const target = r.render(gen.getShaderCode("uv", 0, new GenContext()), 64);
-    const img = r.toImageData(target);
-    r.deleteTarget(target);
+    const sc = gen.getShaderCode("uv", 0, new GenContext());
+    await r.imagesLoaded(rootOf(gen));
+    const img = await r.image(sc, 64);
     const c = document.createElement("canvas");
     c.width = c.height = 64;
     c.getContext("2d")!.putImageData(img, 0, 0);
@@ -49,7 +51,13 @@ export function AddToLibraryDialog({ payload, onClose }: { payload: Gen | { gen:
   const [lib, setLib] = useState(p.library ?? USER_LIBRARY);
   const [name, setName] = useState(p.name ?? `${t("My nodes")}/${p.gen.getTypeName()}`);
   const [icon, setIcon] = useState<string | undefined>();
-  useEffect(() => setIcon(nodeIcon(p.gen)), [p.gen]);
+  useEffect(() => {
+    let stale = false;
+    void nodeIcon(p.gen).then((i) => !stale && setIcon(i));
+    return () => {
+      stale = true;
+    };
+  }, [p.gen]);
   return (
     <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 460 }}>
       <h2>{p.iconOnly ? t("Update the library icon") : t("New library element")}</h2>

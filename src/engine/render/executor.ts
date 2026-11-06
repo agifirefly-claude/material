@@ -212,7 +212,7 @@ export class Executor {
             this.programs.get(def.source);
           } catch (e) {
             if (!(e instanceof ShaderError)) throw e;
-            errors.push({ target: o.id, program: o.program, message: e.message, log: e.log });
+            errors.push({ target: o.id, program: o.program, message: e.message, log: e.log, source: e.source });
             break;
           }
           const built = { source: def.source, uniforms: def.uniforms as unknown as ShaderUniform[], body: "" } as BuiltShader;

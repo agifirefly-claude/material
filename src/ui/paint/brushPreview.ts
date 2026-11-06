@@ -22,7 +22,7 @@ let gen: {
 let queue: Promise<unknown> = Promise.resolve();
 
 function setup(r: Renderer) {
-  installMeshMaps();
+  installMeshMaps({ background: true });
   const keep = currentMesh();
   const mesh = geometryToPaintMesh(new THREE.PlaneGeometry(2, 2, 8, 8), "brush_preview_plane");
   const project = new PaintProject(r, mesh, null);

@@ -35,6 +35,20 @@ if (want("compare")) {
   const p = await page.evaluate(() => window.comparePreviews("bricks", 64));
   check(p.worst <= 1, `bricks previews: ${p.jobs} ImageBitmaps, differ by at most ${p.worst}/255`);
 }
+if (want("moved")) {
+  // renders that used to run on the page only (TAA, the raymarching preview, the SDF builder, library icons, the tone
+  // histogram, frames that are not square, a material's buffers): the worker draws what the page's fallback draws
+  const r = await page.evaluate(() => window.moved());
+  for (const [k, v] of Object.entries(r)) check(v.n > 0 && v.worst <= 1, `${k}: ${v.n} renders, worker vs page differ by at most ${+v.worst.toFixed(3)}/255${v.note ? " (" + v.note + ")" : ""}`);
+}
+if (want("taa")) {
+  // the TAA window's loop for 4 s at 512²: in the worker the page keeps running between batches of samples
+  const w = await page.evaluate(() => window.taaLoop(false, 512, 4000));
+  const m = await page.evaluate(() => window.taaLoop(true, 512, 4000));
+  console.log(`  TAA 512², worker: ${w.samples} samples, ${w.frames} frames, longest timer gap ${w.maxGap.toFixed(0)} ms`);
+  console.log(`  TAA 512², page:   ${m.samples} samples, ${m.frames} frames, longest timer gap ${m.maxGap.toFixed(0)} ms`);
+  check(w.onWorker && w.samples > 0 && w.maxGap < 200, `TAA samples in the worker without holding up the page (longest gap ${w.maxGap.toFixed(0)} ms)`);
+}
 if (want("heavy")) {
   const w = await page.evaluate(() => window.heavy("worker", 2048, 300));
   const m = await page.evaluate(() => window.heavy("main", 2048, 300));

@@ -35,11 +35,11 @@
 
 | 决定 | 数量 |
 | --- | --- |
-| 已修复 | 12 |
+| 已修复 | 14 |
 | 本次实现 | 5 |
 | 增强已实现 | 17 |
 | 增强建议 | 11 |
-| 暂缓 | 34 |
+| 暂缓 | 32 |
 | 不做 | 45 |
 | 不适用 | 97 |
 | 合计 | 221 |
@@ -96,7 +96,7 @@ UE5 配置生成的 `bricks.py` 先 `sys.path.append('$(material_maker_path)/exp
 
 节点库解耦后，这三处直接改在 `library/nodes/` 里：
 
-- **Tiler 固定偏移在奇数行时错行**（#1137）。`tiler` 的 `instance` 用 `mod(mod(tile_index.y, tile.y), 2.0)` 判断奇偶行。GPU 除法不精确时，`mod(9.0, 9.0)` 可能得到 9 而不是 0，原报告里出错的正好是 5、9、13 行。改为 `mod(floor(mod(tile_index.y+0.5, tile.y)), 2.0)`：整数加 0.5 后再取整，不受除法误差影响。无头 Chromium 用软件渲染，复现不了这个误差，所以还没在真实 GPU 上验证。
+- **Tiler 固定偏移在奇数行时错行**（#1137）。`tiler` 的 `instance` 用 `mod(mod(tile_index.y, tile.y), 2.0)` 判断奇偶行。GPU 的除法是 `x * rcp(y)`，`rcp` 可能差几个 ULP，于是 `mod(9.0, 9.0)` 可能得到 9 而不是 0，原报告里出错的正好是 5、9、13 行。改为 `floor(mod(floor(mod(tile_index.y+0.5, tile.y))+0.5, 2.0))`：两次取模的被除数都离整数边界 0.5，除法误差不会让结果跨过边界。没有真实 GPU，改用单元测试模拟：按 float32 计算、`rcp` 偏差 −3 到 +3 个 ULP，行号 0–255、行数 1–64 全部正确；同一模型下原写法会出错，说明模型确实能复现这个问题。
 - **Blend 的 Dodge 在输入大于 1 时出现色带**（#528）。`blend_dodge_f` 只在 `c1 == 1.0` 时特判，`c1 > 1` 时会除以负数。改为 `(c1>=1.0)?1.0:min(c2/(1.0-c1),1.0)`。`blend2` 共用这个函数。
 - **Godot 4 ORM 的贴图读不到**（#1205）。`material`、`material_tesselated` 的 Godot 4 ORM 模板头部是 `format=3`，资源引用却是 Godot 3 写法。改为 `type="Texture2D" id="N"` 和 `ExtResource("N")`。还需要在本地 Godot 4 里确认，步骤见 [本地验证](本地验证.md)。
 
@@ -112,18 +112,23 @@ UE5 配置生成的 `bricks.py` 先 `sys.path.append('$(material_maker_path)/exp
 
 测试：`npm run test:worker`（导出前等图片：取到的颜色正确；反复增删缓冲节点 8 次，缓存大小不变）。
 
+### 3.7 平铺（[#831](https://github.com/RodZill4/material-maker/issues/831)、[#623](https://github.com/RodZill4/material-maker/issues/623)，高）
+
+m3e 材质包要求四边无缝。早先的审计用“接缝处的跳变 ÷ 图中央的跳变”判断，报告 `bricks_uneven3`、`skewed_uneven_bricks` 不平铺；这个比值在砖缝恰好落在边上或中线上时会失真，结论不可靠。现在改用严格的检查（`npm run test:tiling`）：每个输出在 `uv` 和平移一个单元后（`uv+(1,0)`、`uv+(0,1)`）各渲染一次，逐像素比较，3 个种子，差异超过 2/255 的像素不超过 1%（落在单元分界线上的像素可能取到任一边，图内部也一样）。
+
+结果：`bricks_uneven3`、`bricks_uneven3_2`、`bricks_uneven4`（菜单里的 Uneven Bricks 3，即 #831）和 `skewed_uneven_bricks` 的砖块图案本身都无缝。真正的接缝出在给 Fill 系列节点用的输出、随机色和位置输出上：横跨边缘的砖块两半算出的位置差一个整单元，取 `fract` 后末几位不同，随机哈希就完全不同，两半的颜色、UV 对不上。修正：
+
+- `bricks_uneven2`、`bricks_uneven2_2`（菜单里的 Uneven Bricks）的 Brick Fill：左下角没有取 `fract`，改为先对齐到 1/4096 网格再取 `fract`，与 `bricks_uneven3` 相同。
+- `skewed_bricks`、`skewed_uneven_bricks` 的 Brick Fill、Corner Fill：原来先 `fract` 再对齐网格，0.99999 会对齐成 1.0，而另一边是 0.0；改为先对齐再 `fract`。
+- 旧版 `bricks`（10 个示例在用）：随机色、砖块 UV、角 UV 用 `fract(center)` 做哈希，位置输出直接给绝对坐标。新增 `oldbrick_key()`，把中心对齐到 1/4096 网格再取 `fract`，哈希和位置输出都用它。代价：用到这个节点的旧工程里，每块砖分到的随机值会重新洗牌（图案不变，统计上一样）。
+
+检查覆盖 36 个生成节点和砖块节点的全部输出。不检查的 16 个节点在 `tests/run-harness.mjs` 里列明原因：本来就不平铺的形状和渐变；按单元独立随机、单元与边缘对齐的噪声和图案（边缘只是又一条单元分界线）；只在一个单元内定义的 `bricks_uneven`（单位正方形的细分，砖块不会跨边）。
+
 ## 4. 适用但暂缓的
 
 ### 4.1 节点数据（交给数据维护方）
 
 节点库解耦后成为本项目自己的数据（`library/nodes/`），下面的 Tiler、Dodge 已直接改在数据里，见 3.5。
-
-**平铺审计**。m3e 材质包要求四边无缝，所以用临时 Playwright 脚本把所有无输入的生成节点（97 个）和全部砖块节点，各用 3 个种子渲染 256²，比较左右、上下两条接缝处的跳变与图中央相邻列的跳变（比值 0 表示完全无缝，大于 3 视为可疑）：
-
-- 无输入生成节点：可疑的只有渐变、螺旋渐变、正弦波和 SDF 形状。这些本来就不平铺，没有问题。
-- 砖块节点：`bricks_uneven3` 和 `bricks_uneven3_2` 为 28（[#831](https://github.com/RodZill4/material-maker/issues/831)），`skewed_uneven_bricks` 为 10（[#623](https://github.com/RodZill4/material-maker/issues/623)），确认不平铺。其余砖块节点都是 0。
-
-`bricks_uneven3` 的 `bricks_uneven2()` 函数从代码上看在 x、y 方向都是周期的，接缝的来源还没找到，需要单独调试。用这两个节点做 m3e 材质时要注意。
 
 其余节点数据问题（[#849](https://github.com/RodZill4/material-maker/issues/849) Smooth Pixels 插值、[#745](https://github.com/RodZill4/material-maker/issues/745) Random Weave 伪影、[#739](https://github.com/RodZill4/material-maker/issues/739) Circle Splatter 实例 UV）与原版相同，价值低，暂缓。
 
@@ -222,7 +227,7 @@ UE5 配置生成的 `bricks.py` 先 `sys.path.append('$(material_maker_path)/exp
 | [916](https://github.com/RodZill4/material-maker/issues/916) | add a 'to run' section on readme | 增强 | 否 | 无 | 不适用 | 原版 README |
 | [849](https://github.com/RodZill4/material-maker/issues/849) | Smooth Pixels node has inconsistent interpolation | 缺陷 | 是 | 低 | 暂缓 | Smooth Pixels 插值不一致，节点数据问题，与原版相同；不影响主流程 |
 | [840](https://github.com/RodZill4/material-maker/issues/840) | Export to .exr does not work | 缺陷 | 是 | 高 | 已修复 | Blender 等配置要求 .exr 的贴图，导出时写成了 PNG 字节 |
-| [831](https://github.com/RodZill4/material-maker/issues/831) | Uneven Bricks 3 is not tileable | 缺陷 | 是 | 高 | 暂缓 | 已复现：接缝比 28（正常为 0）；节点数据问题，交给数据维护方，复现方法见下文 |
+| [831](https://github.com/RodZill4/material-maker/issues/831) | Uneven Bricks 3 is not tileable | 缺陷 | 是 | 高 | 已修复 | 砖块图案本身无缝；Fill 等输出在跨边砖块上对不上，已修正，并加了严格的平铺检查（3.7） |
 | [825](https://github.com/RodZill4/material-maker/issues/825) | Export SpatialMaterial to Three.js compatible JSON | 增强 | 否 | 低 | 不做 | three.js JSON 材质：已有 glTF/.glb 导出，three.js 直接读 glTF |
 | [790](https://github.com/RodZill4/material-maker/issues/790) | Comments duplicate when entering-and-exiting a node group | 缺陷 | 否 | 无 | 不适用 | 原版注释框复制 |
 | [786](https://github.com/RodZill4/material-maker/issues/786) | Material Maker Lags on AUR Install, Fails to Start When Built from Source (Arch Linux) | 缺陷 | 否 | 无 | 不适用 | AUR 安装 |
@@ -280,7 +285,7 @@ UE5 配置生成的 `bricks.py` 先 `sys.path.append('$(material_maker_path)/exp
 | [628](https://github.com/RodZill4/material-maker/issues/628) | Some shader errors not reported, material just stops updating | 缺陷 | 否 | 无 | 不适用 | 我们直接编译检查并报告错误 |
 | [626](https://github.com/RodZill4/material-maker/issues/626) | Support Bevy | 增强 | 否 | 低 | 不做 | Bevy 导出，受众小；glTF 可用 |
 | [625](https://github.com/RodZill4/material-maker/issues/625) | World and camera face direction (surface/vertex normal nodes). | 增强 | 否 | 低 | 不做 | 同 #954 |
-| [623](https://github.com/RodZill4/material-maker/issues/623) | The 'Skewed Uneven Bricks' texture does not tile | 缺陷 | 是 | 中 | 暂缓 | 已复现：接缝比 10（正常为 0）；节点数据问题，见下文 |
+| [623](https://github.com/RodZill4/material-maker/issues/623) | The 'Skewed Uneven Bricks' texture does not tile | 缺陷 | 是 | 中 | 已修复 | 同 #831：Fill 输出先 fract 再对齐网格，已改为先对齐再 fract（3.7） |
 | [622](https://github.com/RodZill4/material-maker/issues/622) | Brick textures do not color match beyond edges when using the warp transform | 缺陷 | 否 | 低 | 不做 | 扭曲后颜色不匹配是扭曲的固有结果 |
 | [621](https://github.com/RodZill4/material-maker/issues/621) | Automatic export when outputs change | 增强 | 否 | 无 | 增强已实现 | 自动导出节点已有 |
 | [619](https://github.com/RodZill4/material-maker/issues/619) | Preview material in open menu | 增强 | 否 | 低 | 不做 | 打开菜单里预览材质 |
