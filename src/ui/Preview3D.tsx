@@ -22,7 +22,8 @@ const ROTATION_SPEEDS = [0, 0.15, 0.6, 1.2];
 const CAMERA_HOME = new THREE.Vector3(0, 0.3, 3);
 
 export function Preview3D({ active }: { active: boolean }) {
-  // the draw loop skips frames while the panel's tab is hidden
+  // the view is drawn on demand (invalidate): when the camera or the model moves, the model turns, the maps,
+  // environment or settings change or the panel resizes; otherwise it draws nothing. Not while its tab is hidden.
   const shown = useRef(active);
   shown.current = active;
   useEditor();
@@ -41,7 +42,10 @@ export function Preview3D({ active }: { active: boolean }) {
     textures: Record<string, THREE.CanvasTexture>;
     stage: Stage;
     post: PostProcessor;
+    /** asks for a frame */
+    invalidate: () => void;
   } | null>(null);
+  const invalidate = () => three.current?.invalidate();
   const prefs = usePrefs();
   const [res, setRes] = useState(() => getPrefs().preview3dResolution);
   useEffect(() => setRes(prefs.preview3dResolution), [prefs.preview3dResolution]);
@@ -104,7 +108,15 @@ export function Preview3D({ active }: { active: boolean }) {
     const stage: Stage = { scene, pmrem: new THREE.PMREMGenerator(renderer), sun, ambient, envMaps: new Map() };
     const post = new PostProcessor(renderer, scene, camera);
     post.configure(getSettings().post);
-    three.current = { renderer, scene, camera, controls, pivot, mesh: m, material, canvases, textures, stage, post };
+    let raf = 0;
+    const invalidate = () => {
+      if (!raf) raf = requestAnimationFrame(frame);
+    };
+    three.current = { renderer, scene, camera, controls, pivot, mesh: m, material, canvases, textures, stage, post, invalidate };
+    // the camera moved (a drag, the wheel, damping)
+    let updating = false;
+    const changed = () => updating || invalidate();
+    controls.addEventListener("change", changed);
     const ro = new ResizeObserver(() => {
       const w = el.clientWidth,
         h = el.clientHeight;
@@ -113,6 +125,7 @@ export function Preview3D({ active }: { active: boolean }) {
       post.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
+      invalidate();
     });
     ro.observe(el);
 
@@ -133,6 +146,7 @@ export function Preview3D({ active }: { active: boolean }) {
       const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
       pivot.rotateOnWorldAxis(right, dy);
       pivot.rotateOnWorldAxis(up, dx);
+      invalidate();
     };
     const upH = () => {
       turning = null;
@@ -155,27 +169,39 @@ export function Preview3D({ active }: { active: boolean }) {
     renderer.domElement.addEventListener("pointerup", upH);
     renderer.domElement.addEventListener("wheel", wheel, { capture: true, passive: false });
 
-    let raf = 0;
     let last = performance.now();
-    const loop = () => {
-      raf = requestAnimationFrame(loop);
+    let frames = 0;
+    function frame() {
+      raf = 0;
       if (!shown.current) return;
       const now = performance.now();
+      const speed = ROTATION_SPEEDS[getSettings().rotationSpeed];
       // Material Maker's fps_limit
       const fps = getPrefs().fpsLimit;
-      if (fps > 0 && now - last < 1000 / fps - 2) return;
+      if (fps > 0 && now - last < 1000 / fps - 2) return invalidate();
       // while renders wait for the GPU (a big export, many previews) the model stops turning and the view is drawn
       // only when the user moves it: every WebGL context shares the GPU, and each frame drawn here makes the page
       // wait for the renders queued before it
-      if (editor.renders?.congested && now - touched > 500) return;
+      if (speed && editor.renders?.congested && now - touched > 500) {
+        last = now;
+        return invalidate();
+      }
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
-      pivot.rotateY(ROTATION_SPEEDS[getSettings().rotationSpeed] * dt);
-      controls.update();
+      if (speed) pivot.rotateY(speed * dt);
+      // damping moves the camera a little longer after a drag
+      updating = true;
+      const moving = controls.update();
+      updating = false;
       post.draw();
-    };
-    loop();
+      // frames drawn, for the tests
+      renderer.domElement.dataset.frames = String(++frames);
+      // damping ends in tiny steps: once the user let go a while ago, they are not worth drawing
+      if (speed || (moving && now - touched < 1500)) invalidate();
+    }
+    invalidate();
     return () => {
+      controls.removeEventListener("change", changed);
       cancelAnimationFrame(raf);
       ro.disconnect();
       post.dispose();
@@ -202,6 +228,7 @@ export function Preview3D({ active }: { active: boolean }) {
       // the mesh shown here is the one Mesh Map nodes bake their maps from (MMGenGraph.current_mesh)
       setCurrentMesh(geometryToPaintMesh(geo, obj.key));
       editor.emit();
+      t.invalidate();
     };
     if (obj.key === "custom") {
       if (custom) use(custom, false);
@@ -227,8 +254,13 @@ export function Preview3D({ active }: { active: boolean }) {
   useEffect(() => {
     const t = three.current;
     if (!t || !env) return;
-    applyEnvironment(t.stage, env, settings.clearBackground);
+    // the sky loads asynchronously
+    invalidate();
+    void applyEnvironment(t.stage, env, settings.clearBackground).then(invalidate, invalidate);
   }, [env, settings.clearBackground]);
+
+  // anything of the view's settings (rotation, post processing, lights...), the preferences, showing the tab
+  useEffect(invalidate, [settings, prefs, active]);
 
   // post processing, camera and shadows
   useEffect(() => {
@@ -248,6 +280,7 @@ export function Preview3D({ active }: { active: boolean }) {
     t.controls.target.set(0, 0, 0);
     t.pivot.rotation.set(0, 0, 0);
     t.controls.update();
+    t.invalidate();
   };
   const loadCustom = () => {
     const input = document.createElement("input");
@@ -345,7 +378,7 @@ export function Preview3D({ active }: { active: boolean }) {
         mat.transparent = true;
         mat.alphaMap = null;
         mat.needsUpdate = true;
-        return;
+        return t.invalidate();
       }
       mat.envMapIntensity = 1;
       const ac = isColor(p.albedo_color) ? p.albedo_color : { r: 1, g: 1, b: 1, a: 1 };
@@ -365,6 +398,7 @@ export function Preview3D({ active }: { active: boolean }) {
         mat.displacementBias = 0.1 * Number(p.depth_scale ?? 0.5);
       } else mat.displacementMap = null;
       mat.needsUpdate = true;
+      t.invalidate();
     }, animTick ? 70 : 120);
     return () => {
       stale = true;
