@@ -1,6 +1,7 @@
 /* RenderSession: renders whose targets the caller keeps between calls — TAA's accumulation, frames that are not
  * square, a material's own buffers read for an engine export. In the render worker where the browser can (its own
- * Recorder, in the exports' lane, so node previews still get the GPU between its batches), else on the page's
+ * Recorder, in the exports' lane, so node previews still get the GPU between its batches; the worker orders its
+ * batches among the other lanes' where they touch the same targets, hazards.ts), else on the page's
  * Renderer. Operations are recorded (or, on the page, run) as they are called; `flush` sends them and returns what
  * was read. Get one from RenderService.session() or RenderService.withSession(). */
 import type { ShaderCode, TextureRef } from "../shader-code";
@@ -17,7 +18,7 @@ type Outputs = Extract<FromWorker, { type: "done" }>["outputs"];
 export interface SessionLink {
   rec: Recorder;
   /** sends what the recorder holds (in the exports' lane) */
-  run(rec: Recorder, opts: { signal?: AbortSignal; onProgress?: (f: number) => void }): Promise<{ outputs: Outputs; errors: DrawError[] }>;
+  run(rec: Recorder, opts: { signal?: AbortSignal; onProgress?: (f: number) => void }): Promise<{ outputs: Outputs; errors: DrawError[]; drawKeys: Map<number, string> }>;
   /** frees targets in the worker */
   release(ids: number[]): void;
   /** drops a recording that will not be sent */
@@ -139,7 +140,7 @@ export class RenderSession {
       this.link.discard(this.link.rec);
       throw new RenderFailure("lost", "the WebGL context was lost");
     }
-    let res: { outputs: Outputs; errors: DrawError[] };
+    let res: { outputs: Outputs; errors: DrawError[]; drawKeys: Map<number, string> };
     try {
       res = await this.link.run(this.link.rec, opts);
     } catch (e) {
@@ -148,7 +149,7 @@ export class RenderSession {
       throw e;
     }
     if (res.errors.length) {
-      this.link.rec.applyErrors(res.errors);
+      this.link.rec.applyErrors(res.errors, res.drawKeys);
       for (const o of res.outputs) if (o instanceof ImageBitmap) o.close();
       const e = res.errors[0];
       throw new ShaderError(e.message, e.source ?? "", e.log);

@@ -307,6 +307,48 @@ window.prune = async () => {
   return { sizes, mainSizes };
 };
 
+declare global {
+  interface Window {
+    lanes: () => Promise<{ viewMs: number; thumbMs: number; shared: number; exported: number; queued: number }>;
+  }
+}
+/** node thumbnails overtake a big view render ("view" lane), and the lanes share the Buffers they read */
+window.lanes = async () => {
+  await window.ready;
+  const mk = (n: number) => {
+    const c = document.createElement("canvas");
+    c.width = c.height = n;
+    return c.getContext("2d")!;
+  };
+  const buffer = () => {
+    const root = new GenGraph();
+    const b = createGen({ type: "buffer" })!;
+    root.addGenerator(b);
+    return b.getShaderCode("uv", 0, new GenContext());
+  };
+  // a view that takes seconds, and a thumbnail asked for while it renders
+  const t0 = performance.now();
+  const view = svc.previews([{ key: "lanes:view", sc: heavyShader(400), size: 2048, preview: false, ctx: mk(256), force: true }], { lane: "view" }).then(() => performance.now() - t0);
+  await new Promise((r) => setTimeout(r, 100));
+  const queued = svc.queued.view;
+  const thumb = svc.previews([{ key: "lanes:thumb", sc: buffer(), size: 64, ctx: mk(64), force: true }]).then(() => performance.now() - t0);
+  const [viewMs, thumbMs] = await Promise.all([view, thumb]);
+  // one Buffer read by a view and a thumbnail at the same time: drawn once (then the two previews)
+  const sc = buffer();
+  let d = svc.stats.renders;
+  await Promise.all([
+    svc.previews([{ key: "lanes:view2", sc, size: 512, ctx: mk(512), force: true }], { lane: "view" }),
+    svc.previews([{ key: "lanes:thumb2", sc, size: 64, ctx: mk(64), force: true }]),
+  ]);
+  const shared = svc.stats.renders - d;
+  // and an export reads it without drawing it again
+  d = svc.stats.renders;
+  await svc.image(sc, 256);
+  const exported = svc.stats.renders - d;
+  for (const k of ["lanes:view", "lanes:thumb", "lanes:view2", "lanes:thumb2"]) svc.forget(k);
+  return { viewMs, thumbMs, shared, exported, queued };
+};
+
 /* ---------- renders that used to run on the page only: each by the worker and by the page's fallback ---------- */
 import { findMaterial } from "../src/engine/materialMaps";
 import { raymarchPreview } from "../src/engine/preview3d";

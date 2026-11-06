@@ -56,6 +56,12 @@ if (want("heavy")) {
   console.log(`  heavy 2048² export, page:   ${m.ms.toFixed(0)} ms, longest timer gap ${m.maxGap.toFixed(0)} ms, ${m.longTasks} long tasks (longest ${m.longest.toFixed(0)} ms), ${m.frames} frames`);
   check(w.maxGap < 200, `the page keeps running during a heavy export in the worker (longest gap ${w.maxGap.toFixed(0)} ms)`);
 }
+if (want("lanes")) {
+  const r = await page.evaluate(() => window.lanes());
+  check(r.queued === 1 && r.thumbMs < r.viewMs / 2, `a thumbnail is drawn while a big view renders: after ${r.thumbMs.toFixed(0)} ms, the view after ${r.viewMs.toFixed(0)} ms`);
+  check(r.shared === 3, `a Buffer read by a view and a thumbnail at once is drawn once: ${r.shared} draws for the buffer and the two previews`);
+  check(r.exported === 1, `an export reads the Buffer the previews drew: ${r.exported} draw`);
+}
 if (want("loss")) {
   const r = await page.evaluate(() => window.contextLoss());
   check(r.lost && r.restored, `context lost (${r.lost}) and restored (${r.restored})`);

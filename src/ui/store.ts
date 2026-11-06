@@ -283,10 +283,20 @@ class Editor {
     return this.history.canRedo;
   }
 
+  /** status messages have listeners of their own: an export's progress (every 100 ms) must not re-render every
+   *  component of the editor (the graph view of a large project takes ~100 ms of the main thread, which a
+   *  software GPU needs for the export itself) */
+  statusVersion = 0;
+  private statusListeners = new Set<Listener>();
+  subscribeStatus = (l: Listener) => {
+    this.statusListeners.add(l);
+    return () => this.statusListeners.delete(l);
+  };
+  getStatusVersion = () => this.statusVersion;
   setStatus(s: string) {
     this.status = s;
-    this.version++;
-    for (const l of this.listeners) l();
+    this.statusVersion++;
+    for (const l of this.statusListeners) l();
   }
 }
 
@@ -297,4 +307,9 @@ export const editor = new Editor();
 /** re-renders the component whenever the editor changes */
 export function useEditor(): number {
   return useSyncExternalStore(editor.subscribe, editor.getVersion);
+}
+
+/** re-renders the component on each status message */
+export function useStatus(): number {
+  return useSyncExternalStore(editor.subscribeStatus, editor.getStatusVersion);
 }

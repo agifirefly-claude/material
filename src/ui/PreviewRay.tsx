@@ -27,7 +27,7 @@ export function PreviewRay({ m }: { m: GenMaterial }) {
       try {
         r.time = performance.now() / 1000;
         const sc = raymarchPreview(m, { ...cam, dist: isRaymarch ? cam.dist * 1.4 : cam.dist }, shape);
-        const job = r.previews([{ key: "3d-ray", sc, size, preview: false, ctx: canvas.current.getContext("2d")!, checker: false, force: true }]);
+        const job = r.previews([{ key: "3d-ray", sc, size, preview: false, ctx: canvas.current.getContext("2d")!, checker: false, force: true }], { lane: "view" });
         busy.current = job.catch(() => null);
         const [res] = await job;
         if (!stale) setError(res.error ? res.error.message : "");

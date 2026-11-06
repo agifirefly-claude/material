@@ -82,7 +82,7 @@ export function SdfBuilder({ gen, initialSel, onClose }: { gen: GenSDF; initialS
           return;
         }
         const sc = is3d ? sdfPreview3D(preview, cam, sel ?? 0) : sdfPreview2D(preview, view, sel ?? 0);
-        const job = r.previews([{ key: "sdf-builder", sc, size: SIZE, preview: false, ctx: c.getContext("2d")!, checker: false, force: true }]);
+        const job = r.previews([{ key: "sdf-builder", sc, size: SIZE, preview: false, ctx: c.getContext("2d")!, checker: false, force: true }], { lane: "view" });
         busy.current = job.catch(() => null);
         const [res] = await job;
         if (!stale) setError(res.error ? res.error.message : "");

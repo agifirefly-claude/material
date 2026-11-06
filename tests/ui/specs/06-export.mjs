@@ -75,4 +75,20 @@ export const tests = [
       assert(cocos.files.some((f) => f.endsWith(".mtl")) && cocos.files.some((f) => f.endsWith(".meta")), "the Cocos zip has a .mtl and .meta files: " + cocos.files.join(", "));
     },
   },
+  {
+    name: "export dialog: an engine export of a material with nothing connected says so, and downloads nothing",
+    timeout: 60_000,
+    async run({ page, base }) {
+      await open(page, base, { example: "blank" });
+      const dlg = await openDialog(page);
+      let downloads = 0;
+      page.on("download", () => downloads++);
+      await dlg.locator("button", { hasText: /^Blender$/ }).first().click();
+      const toast = page.locator(".toast", { hasText: /Nothing to export for Blender/ });
+      await toast.waitFor({ timeout: 30_000 });
+      assert(/no input of .* is connected/.test(await toast.innerText()), "the message says why");
+      await page.waitForTimeout(1500);
+      eq(downloads, 0, "downloads");
+    },
+  },
 ];

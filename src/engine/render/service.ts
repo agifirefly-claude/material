@@ -6,10 +6,10 @@
  * Renderer draws, as before. The synchronous Renderer stays the API of the tests and the command line tool. */
 import type { ShaderCode } from "../shader-code";
 import type { Gen } from "../gen/base";
-import { Recorder, RecorderLink, MainOnlyError } from "./recorder";
+import { Recorder, RecorderLink, MainOnlyError, type Recording } from "./recorder";
 import type { Renderer } from "./renderer";
 import { ShaderError, type Target } from "./types";
-import type { BatchStats, Failure, FromWorker, Lane, Op, ToWorker } from "./protocol";
+import type { BatchStats, Failure, FromWorker, Lane, ToWorker } from "./protocol";
 import { RenderSession } from "./session";
 
 export interface PreviewJob {
@@ -51,10 +51,15 @@ export class RenderFailure extends Error {
   }
 }
 
-type Pending = { started: number; resolve: (m: Extract<FromWorker, { type: "done" }>) => void; reject: (e: RenderFailure) => void; onProgress?: (f: number) => void };
+type Done = Extract<FromWorker, { type: "done" }> & {
+  /** a batch sent before it stopped without drawing something this one read: what this one drew is not to be trusted */
+  tainted: boolean;
+};
+type Pending = { started: number; resolve: (m: Done) => void; reject: (e: RenderFailure) => void; onProgress?: (f: number) => void };
+type InFlight = Recording & { lane: Lane; tainted: boolean };
 
 /** how long the GPU may take for one group of tiles before the render is given up */
-const BUDGET = { fg: 8000, bg: 20000 };
+const BUDGET: Record<Lane, number> = { fg: 8000, view: 8000, bg: 20000 };
 
 export class RenderService {
   mode: "worker" | "main" = "main";
@@ -69,17 +74,17 @@ export class RenderService {
   /** told when the worker's WebGL context is lost and when renders work again */
   onLost: (() => void) | null = null;
   onRestored: (() => void) | null = null;
-  /** a picture finished loading: renders that read it are out of date */
+  /** a picture finished loading, or a render stopped half way: renders that read it are out of date */
   onAsyncUpdate: (() => void) | null = null;
   private worker: Worker | null = null;
   private link = new RecorderLink();
-  /** the previews' recorders: node thumbnails in the "fg" lane; the big views (2D, 3D) in the "bg" lane, so the
-   *  thumbnails get the GPU between the tiles of a 1024² view. Each lane runs its batches in order, which is what a
-   *  recorder's idea of the worker's targets relies on, so each lane has its own. */
-  private recs: Record<Lane, Recorder> = { fg: new Recorder(this.link), bg: new Recorder(this.link) };
-  private get rec(): Recorder {
-    return this.recs.fg;
-  }
+  /** records every render: node thumbnails (the "fg" lane), the 2D and 3D views ("view") and exports ("bg") share
+   *  its cache, so a Buffer drawn for one is not drawn again for the others. The lanes run side by side in the
+   *  worker, so thumbnails get the GPU between the tiles of a 1024² view or an export; where they touch the same
+   *  targets the worker keeps them in order (hazards.ts). */
+  private rec = new Recorder(this.link);
+  private inflight = new Map<number, InFlight>();
+  private exports = 0;
   private pending = new Map<number, Pending>();
   private nextBatch = 1;
   private onMain = new Set<string>();
@@ -108,12 +113,19 @@ export class RenderService {
     return false;
   }
 
+  /** batches sent and not finished, by lane (tests) */
+  get queued(): Record<Lane, number> {
+    const n: Record<Lane, number> = { fg: 0, view: 0, bg: 0 };
+    for (const f of this.inflight.values()) n[f.lane]++;
+    return n;
+  }
+
   get time(): number {
     return this._time;
   }
   set time(t: number) {
     this._time = t;
-    this.recs.fg.time = this.recs.bg.time = t;
+    this.rec.time = t;
     this.main.time = t;
   }
 
@@ -165,7 +177,7 @@ export class RenderService {
         this.lastStats = m.stats;
         this.statsLog.push(m.stats);
         if (this.statsLog.length > 100) this.statsLog.shift();
-        p?.resolve(m);
+        p?.resolve(m as Done);
         break;
       }
       case "failed": {
@@ -202,40 +214,71 @@ export class RenderService {
 
   /** the worker's targets are gone or unknown: forget what the page thought they held */
   private forgetAll() {
-    this.recs.fg.reset();
-    this.recs.bg.reset();
+    this.rec.reset();
     this.link.reset();
+    this.inflight.clear();
     for (const s of this.sessions) s.lost();
   }
 
-  private batch(ops: Op[], transfer: Transferable[], lane: Lane, onProgress?: (f: number) => void, signal?: AbortSignal) {
+  private batch(rec: Recording, lane: Lane, onProgress?: (f: number) => void, signal?: AbortSignal) {
     const id = this.nextBatch++;
-    return new Promise<Extract<FromWorker, { type: "done" }>>((resolve, reject) => {
+    return new Promise<Done>((resolve, reject) => {
       if (!this.worker || this.lost) {
-        for (const t of transfer) (t as ImageBitmap).close?.();
+        for (const t of rec.transfer) (t as ImageBitmap).close?.();
         return reject(new RenderFailure("lost", "the WebGL context was lost"));
       }
-      this.pending.set(id, { started: performance.now(), resolve, reject, onProgress });
+      const f: InFlight = { ...rec, lane, tainted: false };
+      this.inflight.set(id, f);
+      this.link.use(rec.touched, 1);
+      const settle = () => {
+        if (this.inflight.delete(id)) this.link.use(rec.touched, -1);
+      };
+      this.pending.set(id, {
+        started: performance.now(),
+        resolve: (m) => {
+          settle();
+          resolve({ ...m, tainted: f.tainted });
+        },
+        reject: (e) => {
+          if (this.inflight.has(id) && e.kind !== "lost") this.failed(id, f);
+          settle();
+          reject(e);
+        },
+        onProgress,
+      });
       if (signal) {
         if (signal.aborted) this.send({ type: "cancel", id });
         else signal.addEventListener("abort", () => this.send({ type: "cancel", id }), { once: true });
       }
-      this.send({ type: "batch", id, ops, lane, budgetMs: this.budget[lane] }, transfer);
+      this.send({ type: "batch", id, ops: rec.ops, lane, budgetMs: this.budget[lane] }, rec.transfer);
     });
+  }
+
+  /** a batch stopped before its end (a timeout, a cancelled export): what it was to draw is forgotten, and so is what
+   *  the batches sent after it drew from that (they may have read it unfinished); previews are drawn again */
+  private failed(id: number, f: InFlight) {
+    let forgot = this.rec.failed(f);
+    for (const [later, x] of this.inflight) {
+      if (later <= id || x.tainted || ![...x.touched].some((t) => f.written.has(t))) continue;
+      x.tainted = true;
+      forgot = this.rec.failed({ written: x.written, deleted: [] }) || forgot;
+    }
+    // the deletes go at once: a cancelled 4096² export holds hundreds of MB
+    const rest = this.rec.take();
+    if (rest.ops.length) this.batch(rest, f.lane).catch(() => {});
+    if (forgot) this.onAsyncUpdate?.();
   }
 
   /* ---------- previews ---------- */
 
-  /** renders previews (node thumbnails, the 2D and 3D views) and draws the ones that changed into their canvases */
+  /** renders previews (node thumbnails, the 2D and 3D views) and draws the ones that changed into their canvases.
+   *  The big views go in the "view" lane, so the thumbnails are not held up by them. */
   async previews(jobs: PreviewJob[], opts: { lane?: Lane } = {}): Promise<PreviewResult[]> {
     const lane = opts.lane ?? "fg";
     const results: PreviewResult[] = jobs.map(() => ({ changed: false, drawn: false, error: null, usesTime: false }));
     const onPage: number[] = [];
     const shown: { job: number; out: number }[] = [];
-    // pictures that loaded meanwhile go to the worker in the "fg" lane first: a "bg" batch may run before the next
-    // "fg" one, and must find them there
-    if (lane === "bg" && this.link.pending.length && this.mode === "worker" && !this.lost) await this.batch(...this.flushPending(), "fg").catch(() => this.link.reset());
-    const rec = this.recs[lane];
+    const rec = this.rec;
     if (this.mode === "worker" && !this.lost) {
       jobs.forEach((j, i) => {
         try {
@@ -251,11 +294,11 @@ export class RenderService {
           else throw e;
         }
       });
-      const { ops, transfer } = rec.take();
-      if (ops.length) {
+      const recording = rec.take();
+      if (recording.ops.length) {
         try {
-          const res = await this.batch(ops, transfer, lane);
-          rec.applyErrors(res.errors);
+          const res = await this.batch(recording, lane);
+          rec.applyErrors(res.errors, recording.drawKeys);
           for (const s of shown) {
             const bmp = res.outputs[s.out] as ImageBitmap | null;
             const j = jobs[s.job];
@@ -271,17 +314,7 @@ export class RenderService {
           });
         } catch (e) {
           if (!(e instanceof RenderFailure)) throw e;
-          // the worker's targets no longer match what the page thinks: start again from nothing
-          if (e.kind === "lost") this.forgetAll();
-          else if (lane === "fg") {
-            this.send({ type: "reset" });
-            this.recs.fg.reset();
-            this.link.reset();
-          } else {
-            // a reset leaves the "bg" lane's targets alone: free this recorder's own
-            this.send({ type: "batch", id: this.nextBatch++, ops: [...rec.owned].map((id) => ({ op: "delete", id })), lane: "bg", budgetMs: this.budget.bg });
-            rec.reset();
-          }
+          // what the batch was to draw is forgotten (failed()), or everything is, when the context was lost
           const err = new ShaderError(e.kind === "timeout" ? e.message : "Render failed: " + e.message, "", "");
           for (const s of shown) results[s.job].error = err;
         }
@@ -302,13 +335,11 @@ export class RenderService {
 
   forget(key: string): void {
     if (this.onMain.delete(key)) this.main.forget(key);
-    this.recs.fg.forget(key);
-    this.recs.bg.forget(key);
+    this.rec.forget(key);
   }
 
   clearCache(): void {
-    this.recs.fg.clearCache();
-    this.recs.bg.clearCache();
+    this.rec.clearCache();
     this.main.clearCache();
     this.onMain.clear();
   }
@@ -321,12 +352,12 @@ export class RenderService {
 
   /** frees the renders of nodes no longer in any of `roots` (Material Maker #1539) */
   prune(roots: Gen[]): number {
-    return this.recs.fg.prune(roots) + this.recs.bg.prune(roots) + this.main.prune(roots);
+    return this.rec.prune(roots) + this.main.prune(roots);
   }
 
   /** renders kept, in the worker's mirror and on the page (tests) */
   get cacheSize(): number {
-    return this.recs.fg.cacheSize + this.recs.bg.cacheSize + this.main.cacheSize;
+    return this.rec.cacheSize + this.main.cacheSize;
   }
 
   /* ---------- exports ---------- */
@@ -344,58 +375,47 @@ export class RenderService {
     return (await this.pixels([{ sc, size, preview: opts.preview }], true, opts))[0] as Float32Array;
   }
 
-  /** the pixels of each job, row 0 first. Jobs share the buffers they read; a ShaderError fails the whole call */
+  /** the pixels of each job, row 0 first. Jobs share the buffers they read, with each other and with the previews
+   *  (a Buffer the previews drew is not drawn again); a ShaderError fails the whole call */
   async pixels(jobs: RenderJob[], floats: boolean, opts: RenderOptions & { f32?: boolean } = {}): Promise<(Float32Array | Uint8ClampedArray)[]> {
     // the targets are half floats unless asked otherwise, as Renderer.render's are
     const f32 = !!opts.f32;
     if (opts.signal?.aborted) throw new RenderFailure("cancelled", "cancelled");
-    if (this.mode === "worker" && !this.lost) {
-      // pictures that loaded meanwhile go first, in the previews' lane, so a failed export cannot lose them
-      if (this.link.pending.length) await this.batch(...this.flushPending(), "fg").catch(() => this.link.reset());
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const rec = new Recorder(this.link);
-        rec.time = this._time;
-        const misses = this.link.pictures.misses;
-        let ok = true;
-        try {
-          jobs.forEach((j, i) => {
-            const r = rec.renderKeyed("export:" + i, j.sc, j.size, j.preview !== false, f32);
-            if (r.error) throw r.error;
-            if (r.target) rec.read(r.target, floats, i);
-          });
-        } catch (e) {
-          if (!(e instanceof MainOnlyError)) {
-            this.discard(rec);
-            throw e;
-          }
-          ok = false;
-        }
-        if (!ok) {
-          this.discard(rec);
-          break;
-        }
-        if (this.link.pictures.misses !== misses && attempt === 0) {
-          // pictures were still loading: wait for them and record again
-          this.discard(rec);
-          await this.link.pictures.idle();
-          if (this.link.pending.length) await this.batch(...this.flushPending(), "fg").catch(() => this.link.reset());
-          continue;
-        }
-        rec.dispose();
-        const { ops, transfer } = rec.take();
-        const created = ops.flatMap((o) => (o.op === "create" ? [o.id] : []));
-        try {
-          const res = await this.batch(ops, transfer, "bg", opts.onProgress, opts.signal);
-          rec.applyErrors(res.errors);
-          const err = jobs.map((_, i) => rec.errors.get("export:" + i)).find((x) => x);
-          if (err) throw err;
-          return jobs.map((j, i) => (res.outputs[i] as Float32Array | Uint8ClampedArray) ?? new (floats ? Float32Array : Uint8ClampedArray)(j.size * j.size * 4));
-        } catch (e) {
-          // free what the export created in the worker
-          if (e instanceof RenderFailure && e.kind !== "lost") this.send({ type: "batch", id: this.nextBatch++, ops: created.map((id) => ({ op: "delete", id })), lane: "bg", budgetMs: this.budget.bg });
-          throw e;
-        }
+    const rec = this.rec;
+    for (let attempt = 0; attempt < 3 && this.mode === "worker" && !this.lost; attempt++) {
+      const snap = rec.snapshot();
+      const n = ++this.exports;
+      const keys = jobs.map((_, i) => `export${n}:${i}`);
+      const misses = this.link.pictures.misses;
+      try {
+        jobs.forEach((j, i) => {
+          const r = rec.renderKeyed(keys[i], j.sc, j.size, j.preview !== false, f32);
+          if (r.error) throw r.error;
+          if (r.target) rec.read(r.target, floats, i);
+        });
+      } catch (e) {
+        // nothing of it is sent: on the page instead (a texture only the page has), or the shader's error
+        rec.rollback(snap);
+        if (e instanceof MainOnlyError) break;
+        throw e;
       }
+      if (this.link.pictures.misses !== misses && attempt === 0) {
+        // pictures were still loading: wait for them and record again
+        rec.rollback(snap);
+        await this.link.pictures.idle();
+        continue;
+      }
+      // the exported pictures themselves are not kept (the buffers they read are)
+      for (const k of keys) rec.forget(k);
+      const recording = rec.take();
+      const res = await this.batch(recording, "bg", opts.onProgress, opts.signal);
+      rec.applyErrors(res.errors, recording.drawKeys);
+      const err = keys.map((k) => rec.errors.get(k)).find((x) => x);
+      for (const k of keys) rec.errors.delete(k);
+      if (err) throw err;
+      // a render it read stopped half way (a preview over its time budget): once more
+      if (res.tainted) continue;
+      return jobs.map((j, i) => (res.outputs[i] as Float32Array | Uint8ClampedArray) ?? new (floats ? Float32Array : Uint8ClampedArray)(j.size * j.size * 4));
     }
     // on the page
     const out: (Float32Array | Uint8ClampedArray)[] = [];
@@ -413,26 +433,20 @@ export class RenderService {
   /** a keyed render's pixels, and whether they changed since the last call (Auto Export) */
   async keyedImage(key: string, sc: ShaderCode, size: number): Promise<{ image: ImageData | null; changed: boolean }> {
     if (this.mode === "worker" && !this.lost) {
+      const snap = this.rec.snapshot();
       try {
         const r = this.rec.renderKeyed(key, sc, size);
         if (this.onMain.delete(key)) this.main.forget(key);
         if (r.target) this.rec.read(r.target, false, 0);
-        const { ops, transfer } = this.rec.take();
-        const res = await this.batch(ops, transfer, "fg");
-        this.rec.applyErrors(res.errors);
+        const recording = this.rec.take();
+        const res = await this.batch(recording, "fg");
+        this.rec.applyErrors(res.errors, recording.drawKeys);
         const px = res.outputs[0] as Uint8ClampedArray<ArrayBuffer> | null;
         return { image: px && r.target ? new ImageData(px, size, size) : null, changed: r.changed };
       } catch (e) {
-        if (e instanceof RenderFailure) {
-          if (e.kind === "lost") this.forgetAll();
-          else {
-            this.send({ type: "reset" });
-            this.recs.fg.reset();
-            this.link.reset();
-          }
-          throw e;
-        }
+        if (e instanceof RenderFailure) throw e;
         if (!(e instanceof MainOnlyError)) throw e;
+        this.rec.rollback(snap);
       }
     }
     const r = this.main.renderKeyed(key, sc, size);
@@ -440,24 +454,13 @@ export class RenderService {
     return { image: r.target ? this.main.toImageData(r.target) : null, changed: r.changed };
   }
 
-  private flushPending(): [Op[], Transferable[]] {
-    const ops = this.link.pending;
-    const transfer = this.link.pendingTransfer;
-    this.link.pending = [];
-    this.link.pendingTransfer = [];
-    return [ops, transfer];
-  }
-
-  /** drops a recording that will not be sent: the worker never got its programs */
-  private discard(rec: Recorder) {
-    for (const o of rec.ops) if (o.op === "program") this.link.sent.delete(o.hash);
-    rec.reset();
-  }
-
   /* ---------- sessions ---------- */
 
   /** renders whose targets the caller keeps between calls (TAA, frames that are not square, a material's buffers):
-   *  in the worker's exports' lane where it can, else (or with `onPage`) on the page's Renderer. Dispose of it. */
+   *  in the worker's exports' lane where it can, else (or with `onPage`) on the page's Renderer. Dispose of it.
+   *  A session has a Recorder of its own (its targets live until it is disposed, not in the shared cache), on the
+   *  same RecorderLink: target ids, pictures and the targets in flight are shared, so the worker orders its batches
+   *  among the lanes' (hazards.ts) like any other. It sends each program the first time it draws it. */
   session(opts: { onPage?: boolean } = {}): RenderSession {
     if (opts.onPage || this.mode !== "worker" || this.lost) return new RenderSession(this.main, null);
     const rec = new Recorder(this.link);
@@ -466,17 +469,19 @@ export class RenderService {
       rec,
       run: async (r, o) => {
         if (o.signal?.aborted) throw new RenderFailure("cancelled", "cancelled");
-        // pictures that loaded meanwhile go to the worker in the previews' lane first, as for the "bg" previews
-        if (this.link.pending.length) await this.batch(...this.flushPending(), "fg").catch(() => this.link.reset());
-        const { ops, transfer } = r.take();
-        if (!ops.length) return { outputs: [], errors: [] };
-        const res = await this.batch(ops, transfer, "bg", o.onProgress, o.signal);
-        return { outputs: res.outputs, errors: res.errors };
+        // pictures that loaded meanwhile go with it: the worker orders them before what reads them
+        const recording = r.take();
+        if (!recording.ops.length) return { outputs: [], errors: [], drawKeys: recording.drawKeys };
+        const res = await this.batch(recording, "bg", o.onProgress, o.signal);
+        return { outputs: res.outputs, errors: res.errors, drawKeys: recording.drawKeys };
       },
       release: (ids) => {
-        if (ids.length && this.worker && !this.lost) this.send({ type: "batch", id: this.nextBatch++, ops: ids.map((id) => ({ op: "delete", id })), lane: "bg", budgetMs: this.budget.bg });
+        // deleted once the batches before it are done with them
+        if (!ids.length || !this.worker || this.lost) return;
+        for (const id of ids) rec.deleteTarget({ id } as unknown as Target);
+        this.batch(rec.take(), "bg").catch(() => {});
       },
-      discard: (r) => this.discard(r),
+      discard: (r) => r.drop(),
     });
     this.sessions.add(s);
     s.onDispose = () => this.sessions.delete(s);

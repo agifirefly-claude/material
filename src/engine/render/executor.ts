@@ -3,7 +3,8 @@
  * It knows nothing of generators, only programs, targets and draws, so it loads nothing else of the engine.
  * Big targets are drawn in tiles; after a few tiles the executor waits for the GPU (a fence) without blocking,
  * so cancelling works mid-render, progress can be reported and a render the GPU does not finish in time is stopped
- * instead of hanging. Two lanes run side by side: previews ("fg") get the GPU between the tiles of an export ("bg"). */
+ * instead of hanging. The lanes run side by side: thumbnails ("fg") and the big views ("view") get the GPU between the
+ * tiles of an export ("bg"); where they touch the same targets, Hazards (hazards.ts) keeps them in order. */
 import { ProgramCache } from "./programs";
 import * as targets from "./targets";
 import { Blitter } from "./blit";
@@ -12,7 +13,8 @@ import { prepareShader, drawTile, finishShader, tilesOf, type DrawContext } from
 import type { BuiltShader } from "./shader-source";
 import type { ShaderUniform } from "../shader-code";
 import { ShaderError, type Target } from "./types";
-import type { BatchStats, DrawError, Failure, Op, UniformDef } from "./protocol";
+import type { BatchStats, DrawError, Failure, Lane, Op, UniformDef } from "./protocol";
+import { Hazards } from "./hazards";
 
 /** tile size and the area above which a target is drawn in tiles */
 export const WORKER_TILE = 512;
@@ -32,6 +34,8 @@ export interface BatchControl {
   progress(done: number, total: number): void;
   /** the longest the GPU may take to finish one group of tiles */
   budgetMs: number;
+  /** the batch's id, by which Hazards orders it among the other lanes' */
+  batch?: number;
 }
 
 export interface BatchResult {
@@ -64,8 +68,11 @@ export class Executor {
   private targets = new Map<number, Target>();
   private defs = new Map<string, { source: string; uniforms: UniformDef[] }>();
   private blankTarget: Target | null = null;
-  /** tiles drawn between two waits for the GPU: grows while the GPU keeps up, shrinks when it does not */
-  private group = 1;
+  /** the order of the lanes' operations on shared targets */
+  readonly hazards = new Hazards();
+  /** tiles drawn between two waits for the GPU, by lane: grows while the GPU keeps up, shrinks when it does not
+   *  (tiny thumbnails must not make an export queue a whole 2048² map at once) */
+  private group: Record<Lane, number> = { fg: 1, view: 1, bg: 1 };
 
   constructor(readonly canvas: OffscreenCanvas | HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2", { premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false }) as WebGL2RenderingContext | null;
@@ -84,7 +91,7 @@ export class Executor {
     this.programs = new ProgramCache(gl);
     this.blitter = new Blitter(gl, this.vao, this.canvas);
     this.targets.clear();
-    this.background.clear();
+    this.hazards.clear();
     this.blankTarget = null;
   }
 
@@ -92,22 +99,17 @@ export class Executor {
     return !!this.timer;
   }
 
-  /** targets of the exports' lane: they free their own, and a reset of the previews' must not touch them */
-  private background = new Set<number>();
-
-  /** forgets the targets of the previews' lane; programs stay */
-  reset(): void {
-    for (const [id, t] of this.targets) {
-      if (this.background.has(id)) continue;
-      targets.deleteTarget(this.gl, t);
-      this.targets.delete(id);
-    }
+  /** a batch as it arrives (before the batches of its lane sent earlier have run): its programs are known from now
+   *  on, and the targets it touches are ordered after those of the batches before it */
+  receive(batch: number, ops: Op[]): void {
+    for (const o of ops) if (o.op === "program") this.defs.set(o.hash, { source: o.source, uniforms: o.uniforms });
+    this.hazards.register(batch, ops, (p) => this.defs.get(p)?.uniforms.map((u) => u.type === "sampler2D"));
   }
 
   /** after a context loss: what the context held is gone, the program sources stay */
   lost(): void {
     this.targets.clear();
-    this.background.clear();
+    this.hazards.clear();
     this.blankTarget = null;
   }
 
@@ -127,7 +129,18 @@ export class Executor {
     return t;
   }
 
-  async run(ops: Op[], ctl: BatchControl, lane: "fg" | "bg" = "fg"): Promise<BatchResult> {
+  async run(ops: Op[], ctl: BatchControl, lane: Lane = "fg"): Promise<BatchResult> {
+    // a batch run without receive() (tests): ordered after everything before it
+    const id = ctl.batch ?? Number.MAX_SAFE_INTEGER;
+    if (ctl.batch === undefined) this.receive(id, ops);
+    try {
+      return await this.runOps(ops, ctl, lane, id);
+    } finally {
+      this.hazards.finish(id);
+    }
+  }
+
+  private async runOps(ops: Op[], ctl: BatchControl, lane: Lane, batch: number): Promise<BatchResult> {
     const gl = this.gl;
     const start = performance.now();
     const outputs: BatchResult["outputs"] = [];
@@ -151,8 +164,8 @@ export class Executor {
       endQuery();
       const waited = await this.settle(ctl);
       // keep each group of tiles around 10 ms of GPU work
-      if (waited < 4) this.group = Math.min(64, this.group * 2);
-      else if (waited > 16) this.group = Math.max(1, this.group >> 1);
+      if (waited < 4) this.group[lane] = Math.min(64, this.group[lane] * 2);
+      else if (waited > 16) this.group[lane] = Math.max(1, this.group[lane] >> 1);
       sinceWait = 0;
       const now = performance.now();
       if (now - lastProgress > 100) {
@@ -160,22 +173,32 @@ export class Executor {
         ctl.progress(done, total);
       }
     };
-    for (const o of ops) {
+    for (let i = 0; i < ops.length; i++) {
+      const o = ops[i];
       if (ctl.cancelled()) throw new BatchFailure("cancelled", "cancelled");
       if (gl.isContextLost()) throw new BatchFailure("lost", "the WebGL context was lost");
+      // another lane's batch sent earlier still has to draw what this reads (or read what this draws)
+      const blocked = this.hazards.before(batch, i);
+      if (blocked) {
+        if (sinceWait) await wait();
+        await blocked;
+        if (ctl.cancelled()) throw new BatchFailure("cancelled", "cancelled");
+        if (gl.isContextLost()) throw new BatchFailure("lost", "the WebGL context was lost");
+      }
       switch (o.op) {
         case "create":
           targets.deleteTarget(gl, this.targets.get(o.id));
           this.targets.set(o.id, targets.createTarget(gl, this.floatLinear, o.size, o.f32, o.mipmap, o.height));
-          if (lane === "bg") this.background.add(o.id);
           break;
-        case "delete":
-          targets.deleteTarget(gl, this.targets.get(o.id));
-          this.targets.delete(o.id);
-          this.background.delete(o.id);
+        case "delete": {
+          const id = o.id;
+          this.hazards.delete(id, batch, () => {
+            targets.deleteTarget(gl, this.targets.get(id));
+            this.targets.delete(id);
+          });
           break;
+        }
         case "program":
-          this.defs.set(o.hash, { source: o.source, uniforms: o.uniforms });
           break;
         case "upload":
           upload(gl, this.blitter, o.bitmap, this.target(o.id), o.size);
@@ -190,7 +213,7 @@ export class Executor {
           } catch (e) {
             if (!(e instanceof ShaderError)) throw e;
             errors.push({ target: o.id, program: o.program, message: e.message, log: e.log, source: e.source });
-            continue;
+            break;
           }
           const built = { source: def.source, uniforms: def.uniforms as unknown as ShaderUniform[], body: "" } as BuiltShader;
           const values = new Map<string, unknown>();
@@ -209,7 +232,7 @@ export class Executor {
             drawTile(gl, tile.w === target.size && tile.h === (target.height ?? target.size) ? null : tile);
             stats.tiles++;
             done++;
-            if (++sinceWait >= this.group) {
+            if (++sinceWait >= this.group[lane]) {
               gl.flush();
               await wait();
               // the other lane may have drawn meanwhile: bind everything again
@@ -231,6 +254,7 @@ export class Executor {
           outputs[o.out] = await this.read(this.target(o.id), o.f32, ctl);
           break;
       }
+      this.hazards.after(batch, i);
     }
     if (sinceWait || query) await wait();
     for (const q of queries) {
@@ -242,7 +266,9 @@ export class Executor {
     return { outputs, errors, stats };
   }
 
-  /** waits, without blocking, until the GPU has done what was sent; returns how long that took */
+  /** waits, without blocking, until the GPU has done what was sent; returns how long that took. (Sending the next
+   *  group before waiting for this one, to keep the GPU fed, was tried: on SwiftShader a flush behind a long draw
+   *  blocks the worker until it ends, so cancelling and timeouts stopped working.) */
   private async settle(ctl: BatchControl): Promise<number> {
     const gl = this.gl;
     const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
@@ -257,9 +283,11 @@ export class Executor {
         if (gl.isContextLost()) throw new BatchFailure("lost", "the WebGL context was lost");
         if (performance.now() - t0 > ctl.budgetMs)
           throw new BatchFailure("timeout", `the GPU did not finish a part of this render in ${ctl.budgetMs < 2000 ? ctl.budgetMs + " ms" : Math.round(ctl.budgetMs / 1000) + " s"}: a node's shader is probably too heavy for this size`);
-        // polling without pause would take a CPU core from the GPU driver (software ones run on the CPU): back off
+        // polling without pause would take a CPU core from the GPU driver (software ones run on the CPU): back off,
+        // to at most 4 ms: an export waits a few hundred times, and each wait ends on average half a pause late
+        // (16 ms cost an export of 2048² maps about 10%)
         if (++polls < 4) await yieldTask();
-        else await new Promise((r) => setTimeout(r, Math.min(16, polls - 3)));
+        else await new Promise((r) => setTimeout(r, Math.min(4, polls - 3)));
       }
     } finally {
       if (sync) gl.deleteSync(sync);

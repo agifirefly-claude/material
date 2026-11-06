@@ -175,6 +175,16 @@ test("errors and exit codes", () => {
   r = cli("export", bad, "-o", outDir("broken"));
   assert.equal(r.code, 1);
   assert.match(r.err, /broken\.ptex/);
+  // a material with nothing connected: the engine profiles have nothing to write
+  const empty = path.join(TMP, "empty.ptex");
+  fs.writeFileSync(empty, JSON.stringify({ nodes: [{ name: "Material", type: "material", parameters: {} }], connections: [] }));
+  for (const zip of [[], ["--zip"]]) {
+    const d = outDir("empty" + zip.length);
+    r = cli("export", empty, "-t", "Blender", "-s", "64", "-o", d, ...zip);
+    assert.equal(r.code, 1, r.out + r.err);
+    assert.match(r.err, /nothing to export for Blender/);
+    assert.ok(!fs.existsSync(d) || !fs.readdirSync(d).length, "no files written");
+  }
 });
 
 process.on("exit", () => fs.rmSync(TMP, { recursive: true, force: true }));

@@ -284,6 +284,8 @@ export async function exportForEngine(profile: string, size?: number) {
   // the Unreal 5 script imports the helper module mm.py from its own folder
   if (needsUnrealMm(plan) && !("mm.py" in files)) files["mm.py"] = new TextEncoder().encode(UNREAL_MM_PY);
   await addExportNodeFiles(files, prefix, signal);
+  // a profile writes only the maps of connected inputs: no empty zip when nothing is connected
+  if (!Object.keys(files).length) return editor.setStatus(t("Nothing to export for {0}: no input of “{1}” is connected", profile, m.getTypeName()));
   downloadBlob(new Blob([await zipFiles(files)], { type: "application/zip" }), `${prefix}_${profile.replaceAll("/", "_").replaceAll(" ", "_")}.zip`);
   editor.setStatus(t("Exported {0} files for {1}", Object.keys(files).length, profile));
   });

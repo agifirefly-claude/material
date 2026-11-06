@@ -71,6 +71,46 @@ export const tests = [
       await until(async () => (await stablePixels(canvas)) !== p2, "the material change shows in 3D");
     },
   },
+  {
+    name: "3D preview: draws nothing while nothing changes, and draws when the camera moves or the model turns",
+    async run({ page, base }) {
+      await open(page, base, { example: "bricks" });
+      // no FPS limit: the view must idle by itself
+      await page.evaluate(() => import("/src/ui/prefs.ts").then((m) => m.setPrefs({ fpsLimit: 0 })));
+      await page.locator(".dock-tabbar button", { hasText: "3D material" }).click();
+      const canvas = page.locator(".preview-pane .body canvas").first();
+      await canvas.waitFor();
+      await idle(page);
+      const frames = () => canvas.evaluate((c) => +(c.dataset.frames ?? 0));
+      await until(async () => (await frames()) > 0, "the first frame");
+      await page.waitForTimeout(1000);
+      const f0 = await frames();
+      await page.waitForTimeout(2000);
+      const idleFrames = (await frames()) - f0;
+      assert(idleFrames <= 1, `frames drawn in 2 s while nothing changes: ${idleFrames}`);
+      // a drag turns the camera
+      const box = await canvas.boundingBox();
+      const f1 = await frames();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2, { steps: 6 });
+      await page.mouse.up();
+      await until(async () => (await frames()) > f1 + 2, "frames while the camera moves");
+      // the camera settles (damping), then the view idles again
+      await page.waitForTimeout(2500);
+      const f2 = await frames();
+      await page.waitForTimeout(1000);
+      assert((await frames()) - f2 <= 1, "idle again after the drag");
+      // rotation on: frames keep coming
+      await page.evaluate(() => import("/src/ui/preview3d/settings.ts").then((m) => m.updateSettings({ rotationSpeed: 2 })));
+      const f3 = await frames();
+      await page.waitForTimeout(2000);
+      const turning = (await frames()) - f3;
+      // software WebGL on a busy machine draws a few frames a second
+      assert(turning >= 4, `frames in 2 s while the model turns: ${turning}`);
+      await page.evaluate(() => import("/src/ui/preview3d/settings.ts").then((m) => m.updateSettings({ rotationSpeed: 0 })));
+    },
+  },
 ];
 
 function eq2(a, b) {

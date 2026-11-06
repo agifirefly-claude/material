@@ -380,6 +380,7 @@ export const EXTRA: Record<string, Record<string, string>> = {
     "Exported {0} maps": "已导出 {0} 张贴图",
     "Exporting {0} files for {1}…": "正在为 {1} 导出 {0} 个文件…",
     "Exported {0} files for {1}": "已为 {1} 导出 {0} 个文件",
+    "Nothing to export for {0}: no input of “{1}” is connected": "没有可为 {0} 导出的内容：“{1}”的输入都没有连接",
     "{0} is not a Material Maker project": "{0} 不是 Material Maker 工程",
     "Cannot open {0} here": "无法在这里打开 {0}",
     "Cannot open {0}: {1}": "无法打开 {0}：{1}",

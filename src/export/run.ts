@@ -193,6 +193,8 @@ export async function runExport(r: Renderer, root: GenGraph, o: ExportOptions): 
       files = await runProfile(r, m, o.target, o.prefix, size);
   }
   if (o.exportNodes !== false && o.target !== "glb" && o.target !== "m3e") await exportNodeFiles(r, root, o.prefix, files);
+  // a profile writes only the maps of connected inputs: with nothing connected there is nothing to write
+  if (!Object.keys(files).length) throw new Error(`nothing to export for ${o.target}: no input of “${m.getTypeName()}” is connected`);
   return { files, target: o.target };
 }
 
