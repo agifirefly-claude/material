@@ -21,6 +21,9 @@ const ROTATION_SPEEDS = [0, 0.15, 0.6, 1.2];
 const CAMERA_HOME = new THREE.Vector3(0, 0.3, 3);
 
 export function Preview3D({ active }: { active: boolean }) {
+  // the draw loop skips frames while the panel's tab is hidden
+  const shown = useRef(active);
+  shown.current = active;
   useEditor();
   const settings = usePreview3DSettings();
   const envs = useEnvironments();
@@ -149,6 +152,7 @@ export function Preview3D({ active }: { active: boolean }) {
     let last = performance.now();
     const loop = () => {
       raf = requestAnimationFrame(loop);
+      if (!shown.current) return;
       const now = performance.now();
       // Material Maker's fps_limit
       const fps = getPrefs().fpsLimit;

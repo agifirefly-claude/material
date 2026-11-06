@@ -103,6 +103,8 @@ function GraphInner() {
   const [nodes, setNodes] = useState(derived);
   useEffect(() => setNodes(derived), [derived]);
 
+  /* links are controlled: their selection is kept here so a clicked link can be deleted with Delete */
+  const [selEdges, setSelEdges] = useState<ReadonlySet<string>>(new Set());
   const edges = useMemo<Edge[]>(
     () =>
       graph.connections.map((c) => {
@@ -116,10 +118,11 @@ function GraphInner() {
           targetHandle: "i" + c.to_port,
           style: { stroke: portColor(type) },
           data: { c },
+          selected: selEdges.has(`${c.from}:${c.from_port}>${c.to}:${c.to_port}`),
         };
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [graph, editor.version],
+    [graph, editor.version, selEdges],
   );
 
   const onNodesChange = useCallback((changes: NodeChange<Node<NodeData>>[]) => {
@@ -143,6 +146,13 @@ function GraphInner() {
   const onSelectionChange = useCallback(({ nodes }: { nodes: Node[] }) => editor.select(nodes.map((n) => n.id)), []);
 
   const onEdgesChange = useCallback((changes: EdgeChange[]) => {
+    const sel = changes.filter((ch) => ch.type === "select");
+    if (sel.length)
+      setSelEdges((prev) => {
+        const next = new Set(prev);
+        for (const ch of sel) if (ch.type === "select") ch.selected ? next.add(ch.id) : next.delete(ch.id);
+        return next;
+      });
     for (const ch of changes) {
       if (ch.type === "remove") {
         const m = /^(.*):(\d+)>(.*):(\d+)$/.exec(ch.id);
