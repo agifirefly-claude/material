@@ -9,7 +9,6 @@ export interface CacheEntry {
 }
 
 export interface RenderHost {
-  readonly gl: WebGL2RenderingContext;
   time: number;
   /** renders that read something live (the time, a camera) say so, so their previews keep refreshing */
   usedTime: boolean;
@@ -22,8 +21,8 @@ export interface RenderHost {
   reuse(key: string, size: number, f32: boolean, mipmap: boolean): Target;
   cached(key: string): CacheEntry | undefined;
   setCached(key: string, entry: CacheEntry | null): void;
-  /** copies an uploaded picture into a target */
-  blit(src: WebGLTexture, dst: Target, size: number): void;
+  /** copies a picture (row 0 at the top) into a target, a new mipmapped one of `size` when `into` is not given */
+  upload(source: TexImageSource, size: number, into?: Target): Target;
   draw(built: BuiltShader, values: Map<string, unknown>, target: Target, blend?: boolean): void;
   resolveUniforms(uniforms: ShaderUniform[], stack: Set<string>): { sig: string; values: Map<string, unknown> };
   /** something loaded later (a picture, the camera): renders should be redone */

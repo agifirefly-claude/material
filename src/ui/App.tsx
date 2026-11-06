@@ -154,9 +154,9 @@ export function App() {
       }
     }, 2000);
     return () => clearTimeout(t);
-  }, [editor.version, prefs.autosave]);
+  }, [editor.contentVersion, prefs.autosave]);
 
-  const r = editor.renderer;
+  const r = editor.renders ?? editor.renderer;
   const material = findMaterial(editor.root);
   const rayMaterial = material && !previewMaps(material) && raymarchPreviewSupported(material) ? material : null;
   const [, tick] = useState(0);

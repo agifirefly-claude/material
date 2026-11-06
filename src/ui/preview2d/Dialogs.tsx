@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Gen } from "../../engine/gen/base";
 import { editor } from "../store";
 import { downloadBlob } from "../exporting";
+import { rootOf } from "../../engine/render/maps";
 import { canvasBlob, canvasOf, exportAnimation, renderImage, targetExr, TaaRender, type AnimationSettings, type TaaSettings } from "./exports";
 import { t } from "../i18n";
 import { getPrefs } from "../prefs";
@@ -104,7 +105,7 @@ function AnimationDialog({ gen, output, onClose }: { gen: Gen; output: number; o
     if (getPrefs().rememberAnimExport) localStorage.setItem("material-pro:export-animation", JSON.stringify(s));
     setProgress(0);
     const name = `${editor.title}_${gen.name}`;
-    const blob = await exportAnimation(editor.renderer!, gen, output, { ...s, size: 2 ** s.sizeExp, height: 2 ** (s.heightExp ?? s.sizeExp) }, name, setProgress);
+    const blob = await exportAnimation(editor.renders!, gen, output, { ...s, size: 2 ** s.sizeExp, height: 2 ** (s.heightExp ?? s.sizeExp) }, name, setProgress);
     downloadBlob(blob, s.spritesheet === 0 ? `${name}_frames.zip` : `${name}_spritesheet.png`);
     setProgress(null);
     editor.setStatus(t("Exported {0} frames", s.images));
@@ -188,9 +189,12 @@ function TaaDialog({ gen, output, onClose }: { gen: Gen; output: number; onClose
     const t = new TaaRender(r, gen, output, width, height);
     taa.current = t;
     let raf = 0;
+    // samples start once the pictures are there, or the first ones would be black where they go (#758)
+    let ready = false;
+    void r.imagesLoaded(rootOf(gen)).then(() => (ready = true));
     const loop = () => {
       raf = requestAnimationFrame(loop);
-      if (t.iteration >= 4096 || pausedRef.current) return;
+      if (!ready || t.iteration >= 4096 || pausedRef.current) return;
       try {
         // as many samples as fit in a few milliseconds, so the page stays responsive
         const start = performance.now();

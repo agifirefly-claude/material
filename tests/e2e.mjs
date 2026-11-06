@@ -4,7 +4,7 @@ import { createServer } from "vite";
 import validator from "gltf-validator";
 import fs from "node:fs";
 import { launchChromium } from "../scripts/playwright.mjs";
-const server = await createServer({ server: { port: +(process.env.E2E_PORT ?? 5198), host: "127.0.0.1" }, logLevel: "error" });
+const server = await createServer({ server: { port: +(process.env.E2E_PORT ?? 5198), host: "127.0.0.1" }, logLevel: "error", cacheDir: process.env.VITE_CACHE_DIR || undefined });
 await server.listen();
 // the port Vite really took: when the asked one is busy (another checkout's run) it moves to the next one
 const port = server.httpServer.address().port;

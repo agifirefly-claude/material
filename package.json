@@ -12,6 +12,8 @@
     "test:gl": "node tests/run-harness.mjs all",
     "check:i18n": "node scripts/check-i18n.mjs",
     "test:e2e": "node tests/e2e.mjs",
+    "test:worker": "node tests/render-worker.mjs",
+    "perf": "node tests/perf.mjs both",
     "electron:dev": "npm run build && electron electron/main.cjs",
     "electron:build": "npm run build && node electron/build-mac.mjs",
     "electron:smoke": "node electron/smoke.mjs",

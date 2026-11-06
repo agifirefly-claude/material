@@ -59,7 +59,7 @@ export function TonesEditor({ gen }: { gen: Gen }) {
       }
     }, 150);
     return () => clearTimeout(t);
-  }, [src?.generator, src?.outputIndex, editor.version]);
+  }, [src?.generator, src?.outputIndex, editor.contentVersion]);
 
   useEffect(() => {
     const c = canvas.current!;

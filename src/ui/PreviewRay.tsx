@@ -27,7 +27,7 @@ export function PreviewRay({ m }: { m: GenMaterial }) {
       }
     });
     return () => cancelAnimationFrame(id);
-  }, [m, cam, shape, size, editor.version, isRaymarch]);
+  }, [m, cam, shape, size, editor.contentVersion, isRaymarch]);
   return (
     <div className="preview-pane" style={{ flex: 1 }}>
       <div className="tools">

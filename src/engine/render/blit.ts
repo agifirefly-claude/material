@@ -45,6 +45,8 @@ export class Blitter {
   blit(src: WebGLTexture, dst: Target, size: number) {
     const gl = this.gl;
     gl.useProgram(this.program);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.disable(gl.BLEND);
     gl.bindFramebuffer(gl.FRAMEBUFFER, dst.fbo);
     gl.viewport(0, 0, size, size);
     gl.activeTexture(gl.TEXTURE0);
@@ -58,9 +60,16 @@ export class Blitter {
 
   /** draws a target into a 2D canvas (with a checkerboard under transparency) */
   present(t: Target, ctx: CanvasRenderingContext2D, checker = true): void {
-    const gl = this.gl;
     const w = ctx.canvas.width,
       h = ctx.canvas.height;
+    this.toCanvas(t, w, h, checker);
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(this.canvas as CanvasImageSource, 0, this.canvas.height - h, w, h, 0, 0, w, h);
+  }
+
+  /** draws a target, upright, into the bottom left w×h corner of the GL canvas */
+  toCanvas(t: Target, w: number, h: number, checker: boolean): void {
+    const gl = this.gl;
     // the GL canvas only grows: resizing it on every call would be slow
     if (this.canvas.width < w || this.canvas.height < h) {
       this.canvas.width = Math.max(this.canvas.width, w);
@@ -71,8 +80,8 @@ export class Blitter {
     gl.viewport(0, 0, w, h);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, t.tex);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.disable(gl.BLEND);
     this.run(w, h, checker, true);
-    ctx.clearRect(0, 0, w, h);
-    ctx.drawImage(this.canvas as CanvasImageSource, 0, this.canvas.height - h, w, h, 0, 0, w, h);
   }
 }

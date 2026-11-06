@@ -70,7 +70,8 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
       editor.title = old;
     }
   };
-  const r = editor.renderer!;
+  // renders in the render worker where the browser can: the editor stays usable while a big export renders
+  const r = editor.renders!;
   const extra = (g: Group) => {
     switch (g.extra) {
       case "cocos":

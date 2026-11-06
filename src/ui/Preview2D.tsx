@@ -8,7 +8,7 @@ import type { Gen } from "../engine/gen/base";
 import { portLabel } from "./NodeView";
 import { CHECKER_BRIGHTNESS, CHECKER_SIZES, GUIDES, POSTPROCESS, VIEW_MODES, defaultView, viewShaderCode, type View } from "./preview2d/view";
 import { Gizmos } from "./preview2d/Gizmos";
-import { canvasBlob, canvasOf, exportImage, IMAGE_TYPES, interpretFileName, renderImage, type ImageType } from "./preview2d/exports";
+import { canvasBlob, canvasOf, exportImage, IMAGE_TYPES, interpretFileName, serviceImage, type ImageType } from "./preview2d/exports";
 import { openExportDialog } from "./preview2d/Dialogs";
 import { references } from "./Reference";
 import { t } from "./i18n";
@@ -48,6 +48,7 @@ export function Preview2D() {
   const [tick, setTick] = useState(0);
   const body = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
+  const busy = useRef<Promise<unknown> | null>(null);
   const view = st.view;
   const set = (p: Partial<Settings>) =>
     setSt((s) => {
@@ -73,23 +74,31 @@ export function Preview2D() {
   const res = Math.min(1024, Math.round(box * Math.min(2, window.devicePixelRatio || 1)));
 
   // render the view; again every frame while the image depends on the time
+  // (in the render worker: the page only builds the shader; one render at a time, the newest request wins)
   useEffect(() => {
-    const r = editor.renderer;
+    const r = editor.renders;
     if (!r || !g || !outs.length || !canvas.current) return;
-    const id = requestAnimationFrame(() => {
+    let stale = false;
+    const id = requestAnimationFrame(async () => {
+      await busy.current;
+      if (stale || !canvas.current) return;
       try {
         r.time = performance.now() / 1000;
-        const out = r.renderKeyed("preview2d", viewShaderCode(g, o, view, res), res, false);
+        const job = r.previews([{ key: "preview2d", sc: viewShaderCode(g, o, view, res), size: res, preview: false, ctx: canvas.current.getContext("2d")!, checker: false, force: true }]);
+        busy.current = job.catch(() => null);
+        const [out] = await job;
         setError(out.error ? out.error.message : "");
-        if (out.target) r.present(out.target, canvas.current!.getContext("2d")!, false);
-        if (out.usesTime) setTick((t) => t + 1);
+        if (out.usesTime && !stale) setTick((t) => t + 1);
       } catch (e) {
         setError(String(e));
       }
     });
-    return () => cancelAnimationFrame(id);
+    return () => {
+      stale = true;
+      cancelAnimationFrame(id);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [g, o, view, res, editor.version, tick]);
+  }, [g, o, view, res, editor.contentVersion, tick]);
 
   /* pan and zoom (_on_gui_input) */
   const zoomAt = (clientX: number, clientY: number, newScale: number) => {
@@ -218,11 +227,11 @@ export function Preview2D() {
                 </select>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginTop: 6 }}>
-                <button onClick={() => (setMenu(null), exportImage(editor.renderer!, g, o, st.exportSize, st.exportType, exportName))}>{t("Image")}</button>
+                <button onClick={() => (setMenu(null), exportImage(editor.renders!, g, o, st.exportSize, st.exportType, exportName))}>{t("Image")}</button>
                 <button
                   onClick={async () => {
                     setMenu(null);
-                    const blob = await canvasBlob(canvasOf(renderImage(editor.renderer!, g, o, st.exportSize)));
+                    const blob = await canvasBlob(canvasOf(await serviceImage(editor.renders!, g, o, st.exportSize)));
                     references.add(URL.createObjectURL(blob), exportName);
                     editor.setStatus(t("Exported to Reference"));
                   }}
@@ -234,7 +243,7 @@ export function Preview2D() {
                   onClick={async () => {
                     setMenu(null);
                     try {
-                      const blob = await canvasBlob(canvasOf(renderImage(editor.renderer!, g, o, st.exportSize)));
+                      const blob = await canvasBlob(canvasOf(await serviceImage(editor.renders!, g, o, st.exportSize)));
                       await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
                       editor.setStatus(t("Image copied"));
                     } catch (err) {

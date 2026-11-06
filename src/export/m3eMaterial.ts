@@ -1,5 +1,6 @@
 /* Exports the project's material as an m3e material file (src/formats/m3e-material.ts, docs/m3e-material.md). */
 import type { Renderer } from "../engine/render/renderer";
+import { pictureRenderer, rootOf, type PictureRenderer } from "../engine/render/maps";
 import type { GenMaterial } from "../engine/gen/misc";
 import { previewMaps } from "../engine/materialMaps";
 import { MATERIAL_FORMAT, MATERIAL_VERSION, materialId, type MaterialDef, type MaterialFile, type MaterialLight } from "../formats/m3e-material";
@@ -188,26 +189,25 @@ export async function encode(p: Px, format: "webp" | "png", alpha = true): Promi
   return url;
 }
 
-function read(r: Renderer, sc: ReturnType<NonNullable<ReturnType<typeof previewMaps>>["maps"]["albedo"]>, size: number): Px | null {
+async function read(r: PictureRenderer, sc: ReturnType<NonNullable<ReturnType<typeof previewMaps>>["maps"]["albedo"]>, size: number): Promise<Px | null> {
   if (!sc || !sc.outputType) return null;
-  const t = r.render(sc, size);
-  const d = r.readPixels(t);
-  r.deleteTarget(t);
-  return { w: size, h: size, d };
+  return { w: size, h: size, d: await r.floats(sc, size) };
 }
 
 /** the material as an m3e material file */
-export async function buildM3eMaterial(r: Renderer, m: GenMaterial, o: M3eExportOptions): Promise<MaterialFile> {
+export async function buildM3eMaterial(renderer: Renderer | PictureRenderer, m: GenMaterial, o: M3eExportOptions): Promise<MaterialFile> {
+  const r = pictureRenderer(renderer);
+  await r.imagesLoaded(rootOf(m));
   const spec = previewMaps(m);
   if (!spec) throw new Error("This material type has no texture maps to export");
   const size = o.resolution;
-  const albedo = read(r, spec.maps.albedo(), size);
+  const albedo = await read(r, spec.maps.albedo(), size);
   if (!albedo) throw new Error("The material has no albedo");
   const connected = (input: string) => !m.getInputDefs().some((d) => d.name === input) || m.isConnected(input);
-  const normal = connected("normal_tex") ? read(r, spec.maps.normal(), size) : null;
-  const orm = read(r, spec.maps.orm(), size);
-  const emission = connected("emission_tex") ? read(r, spec.maps.emission(), size) : null;
-  const depth = connected("depth_tex") ? read(r, spec.maps.depth(), size) : null;
+  const normal = connected("normal_tex") ? await read(r, spec.maps.normal(), size) : null;
+  const orm = await read(r, spec.maps.orm(), size);
+  const emission = connected("emission_tex") ? await read(r, spec.maps.emission(), size) : null;
+  const depth = connected("depth_tex") ? await read(r, spec.maps.depth(), size) : null;
   const { surface, shading } = bakeSurface(albedo, normal, orm, emission, o.light);
   const swatch = swatchOf(surface);
   // how much relief there is: the spread of the shading around mid grey

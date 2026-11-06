@@ -2,48 +2,77 @@
 import type { GenImage, GenText } from "../gen/texture";
 import { isColor } from "../params/types";
 import type { RenderHost } from "./host";
+import type { Blitter } from "./blit";
 import { fnv, type Resolved, type Target } from "./types";
 
-/** uploads a picture into a new power of two target of the host, as it is (row 0 is the top) */
-function upload(host: RenderHost, source: TexImageSource, size: number, into?: Target): Target {
-  const gl = host.gl;
-  const t = into ?? host.createTarget(size, false, true);
+/** uploads a picture into a target, as it is (row 0 is the top) */
+export function upload(gl: WebGL2RenderingContext, blitter: Blitter, source: TexImageSource, t: Target, size: number): Target {
   const tmp = gl.createTexture()!;
   gl.bindTexture(gl.TEXTURE_2D, tmp);
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, source);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  host.blit(tmp, t, size);
+  blitter.blit(tmp, t, size);
   gl.deleteTexture(tmp);
   return t;
 }
-const pow2 = (w: number, h: number) => 1 << Math.ceil(Math.log2(Math.max(w, h, 1)));
+export const pow2 = (w: number, h: number) => 1 << Math.ceil(Math.log2(Math.max(w, h, 1)));
+
+/** what Image nodes read */
+export interface PictureSource {
+  resolve(g: GenImage): Resolved;
+  /** resolves once every picture asked for so far has loaded or failed */
+  idle(): Promise<void>;
+  /** forgets the pictures of URLs no longer used, freeing their textures */
+  prune(used: Set<string>): void;
+}
+
+type Picture = { tex: Target | null; w: number; h: number; loading: boolean; error?: string; ready: Promise<void> };
 
 /** pictures by URL, loaded once */
-export class ImageSource {
-  private images = new Map<string, { tex: Target | null; w: number; h: number; loading: boolean; error?: string }>();
+export class ImageSource implements PictureSource {
+  private images = new Map<string, Picture>();
   constructor(private host: RenderHost) {}
+
+  async idle(): Promise<void> {
+    for (;;) {
+      const pending = [...this.images.values()].filter((e) => e.loading).map((e) => e.ready);
+      if (!pending.length) return;
+      await Promise.all(pending);
+    }
+  }
+
+  prune(used: Set<string>): void {
+    for (const [url, e] of this.images) {
+      if (used.has(url) || e.loading) continue;
+      this.host.deleteTarget(e.tex);
+      this.images.delete(url);
+    }
+  }
 
   resolve(g: GenImage): Resolved {
     const url = String(g.getParameter("image") ?? "");
     if (!url) return { target: null, sig: "noimage" };
     let entry = this.images.get(url);
     if (!entry) {
-      const e: { tex: Target | null; w: number; h: number; loading: boolean; error?: string } = { tex: null, w: 0, h: 0, loading: true };
+      let done!: () => void;
+      const e: Picture = { tex: null, w: 0, h: 0, loading: true, ready: new Promise<void>((res) => (done = res)) };
       entry = e;
       this.images.set(url, e);
       const img = new Image();
       img.crossOrigin = "anonymous";
       img.onload = () => {
-        e.tex = upload(this.host, img, pow2(img.width, img.height));
+        e.tex = this.host.upload(img, pow2(img.width, img.height));
         e.w = img.width;
         e.h = img.height;
         e.loading = false;
+        done();
         this.host.asyncUpdate();
       };
       img.onerror = () => {
         e.loading = false;
         e.error = "Cannot load " + url;
+        done();
       };
       img.src = url;
     }
@@ -88,7 +117,7 @@ export class TextSource {
     if (p.center) y -= (lines.length * lineHeight) / 2;
     if (p.center && align === 0) ctx.textAlign = "center";
     lines.forEach((l, i) => ctx.fillText(l, x, y + i * lineHeight));
-    const t = upload(this.host, c as unknown as TexImageSource, size, this.host.reuse(key, size, false, true));
+    const t = this.host.upload(c as unknown as TexImageSource, size, this.host.reuse(key, size, false, true));
     this.host.setCached(key, { sig, target: t });
     return { target: t, sig };
   }
@@ -98,6 +127,11 @@ export class TextSource {
 export class WebcamSource {
   private cam: { video: HTMLVideoElement | null; target: Target | null; state: "asking" | "on" | "denied" } | null = null;
   constructor(private host: RenderHost) {}
+
+  /** the host forgot its targets */
+  reset(): void {
+    if (this.cam) this.cam.target = null;
+  }
 
   resolve(): Resolved {
     if (!this.cam) {
@@ -127,7 +161,7 @@ export class WebcamSource {
       this.host.deleteTarget(cam.target);
       cam.target = this.host.createTarget(size, false, true);
     }
-    upload(this.host, cam.video, size, cam.target);
+    this.host.upload(cam.video, size, cam.target);
     // a live picture: renders that read it refresh like time based ones
     this.host.usedTime = true;
     return { target: cam.target, sig: "webcam:" + this.host.time };

@@ -47,7 +47,7 @@ export function GraphInner() {
         zIndex: g instanceof GenComment ? -1 : 0,
       })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [graph, editor.version],
+    [graph, editor.contentVersion],
   );
   const [nodes, setNodes] = useState(derived);
   useEffect(() => setNodes(derived), [derived]);
@@ -71,7 +71,7 @@ export function GraphInner() {
         };
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [graph, editor.version, selEdges],
+    [graph, editor.contentVersion, selEdges],
   );
 
   const onNodesChange = useCallback((changes: NodeChange<Node<NodeData>>[]) => {
