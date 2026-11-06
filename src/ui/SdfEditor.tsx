@@ -157,6 +157,9 @@ export function SdfEditor({ gen, source, sel: selProp, setSel: setSelProp }: { g
     const el = treeRef.current;
     if (!el) return;
     const key = (e: KeyboardEvent) => {
+      // typing in a field (renaming an item): the keys edit the text, not the tree
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) return;
       const mod = e.ctrlKey || e.metaKey;
       const k = e.key.toLowerCase();
       if (mod && k === "c" && selected) copyItem(selected.item);

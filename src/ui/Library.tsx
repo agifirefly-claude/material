@@ -1,6 +1,6 @@
 import type React from "react";
 import { useMemo, useState, useSyncExternalStore } from "react";
-import type { LibraryItem } from "../engine/registry";
+import { registry, type LibraryItem } from "../engine/registry";
 import { LIB_MIME } from "./GraphView";
 import { editor, useEditor } from "./store";
 import { GenGraph } from "../engine/gen/graph";
@@ -37,6 +37,20 @@ export function searchLibrary(q: string): LibraryItem[] {
   return q.trim() ? libraries.search(q, false, t) : [];
 }
 
+/** what a library item's node does (its long description, else its short one), for the item's tooltip */
+export function libraryItemDescription(item: LibraryItem): string {
+  type Desc = { shortdesc?: string; longdesc?: string; shader_model?: { shortdesc?: string; longdesc?: string } };
+  const own = item as unknown as Desc;
+  const def = (registry.nodes[item.type] ?? {}) as Desc;
+  for (const d of [own.shader_model, own, def.shader_model, def]) {
+    const s = d?.longdesc || d?.shortdesc;
+    if (typeof s === "string" && s.trim()) return t(s.trim());
+  }
+  return "";
+}
+
+const itemTitle = (item: LibraryItem) => [tPath(item.tree_item), libraryItemDescription(item), t("Click or drag to add")].filter(Boolean).join("\n");
+
 function addNode(item: LibraryItem) {
   window.dispatchEvent(new CustomEvent("mm-add-node", { detail: item }));
 }
@@ -63,7 +77,7 @@ function TreeItem({ f, open, toggle, onMenu }: { f: Folder; open: Set<string>; t
           e.preventDefault();
           onMenu({ x: e.clientX, y: e.clientY, item: f.item });
         }}
-        title={f.item ? `${tPath(f.item.tree_item)}\n${t("Click or drag to add")}` : tPath(f.path)}
+        title={f.item ? itemTitle(f.item) : tPath(f.path)}
       >
         <span className="caret">{hasChildren ? (isOpen ? "▾" : "▸") : ""}</span>
         {f.item?.icon_data && <img src={"data:image/png;base64," + f.item.icon_data} alt="" />}
@@ -170,7 +184,7 @@ export function Library({ hierarchy = true }: { hierarchy?: boolean } = {}) {
                   e.preventDefault();
                   setMenu({ x: e.clientX, y: e.clientY, item: it });
                 }}
-                title={tPath(it.tree_item)}
+                title={itemTitle(it)}
               >
                 {it.icon_data && <img src={"data:image/png;base64," + it.icon_data} alt="" />}
                 <span>{tPath(it.tree_item).split("/").slice(-2).join(" / ")}</span>

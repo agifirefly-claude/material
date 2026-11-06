@@ -104,6 +104,17 @@ export function App() {
     window.addEventListener("beforeunload", h);
     return () => window.removeEventListener("beforeunload", h);
   }, []);
+  // Ctrl+S (⌘S) saves the project, as the File menu does, instead of the browser saving the page
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        saveProject();
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
   useEffect(() => {
     if (!editor.status) return;
     setToast(editor.status);
@@ -153,7 +164,7 @@ export function App() {
               <hr />
               <button onClick={() => (close(), openProjectFile())}>{t("Open…")}{" "}{t("(.ptex)")}</button>
               <button onClick={() => (close(), setExamples(true))}>{t("Examples…")}</button>
-              <button onClick={() => (close(), saveProject())}>{t("Save")}{" "}{t("(.ptex)")}</button>
+              <button onClick={() => (close(), saveProject())}>{t("Save")}{" "}{t("(.ptex)")}{" "}{t("(Ctrl+S)")}</button>
               <hr />
               <button onClick={() => (close(), setExporting(true))}>{t("Export…")}</button>
               <button onClick={() => (close(), exportMaterialMaps())}>{t("Export material maps (zip)")}</button>

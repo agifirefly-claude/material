@@ -229,6 +229,21 @@ export function Preview2D() {
                 >
                   {t("To Reference")}
                 </button>
+                <button
+                  title={t("Copy the image at the chosen resolution, to paste it in another application")}
+                  onClick={async () => {
+                    setMenu(null);
+                    try {
+                      const blob = await canvasBlob(canvasOf(renderImage(editor.renderer!, g, o, st.exportSize)));
+                      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+                      editor.setStatus(t("Image copied"));
+                    } catch (err) {
+                      editor.setStatus(t("Could not copy the image: {0}", err instanceof Error ? err.message : String(err)));
+                    }
+                  }}
+                >
+                  {t("Copy")}
+                </button>
                 <button onClick={() => (setMenu(null), openExportDialog({ kind: "animation", gen: g, output: o }))}>{t("Animation…")}</button>
                 <button onClick={() => (setMenu(null), openExportDialog({ kind: "taa", gen: g, output: o }))}>{t("TAA Render…")}</button>
               </div>
