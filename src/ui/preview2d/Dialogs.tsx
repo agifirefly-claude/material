@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import type { Gen } from "../../engine/gen/base";
 import { editor } from "../store";
 import { downloadBlob } from "../exporting";
-import { canvasBlob, canvasOf, exportAnimation, renderImage, TaaRender, type AnimationSettings, type TaaSettings } from "./exports";
+import { canvasBlob, canvasOf, exportAnimation, renderImage, targetExr, TaaRender, type AnimationSettings, type TaaSettings } from "./exports";
 import { t } from "../i18n";
+import { getPrefs } from "../prefs";
 
 export type DialogRequest = { kind: "animation" | "taa"; gen?: Gen; output?: number };
 
@@ -92,14 +93,18 @@ function AnimatedThumb({ gen, output, begin, end, size = 128 }: { gen: Gen; outp
 }
 
 function AnimationDialog({ gen, output, onClose }: { gen: Gen; output: number; onClose: () => void }) {
-  const [s, setS] = useState<AnimationSettings & { sizeExp: number }>(() => loadSettings("material-pro:export-animation", { size: 256, sizeExp: 8, begin: 0, end: 1, images: 16, spritesheet: 4 }));
+  const [s, setS] = useState<AnimationSettings & { sizeExp: number; heightExp: number }>(() => {
+    const d = { size: 256, sizeExp: 8, heightExp: 8, begin: 0, end: 1, images: 16, spritesheet: 4 };
+    // Material Maker's remember_anim_export
+    return getPrefs().rememberAnimExport ? loadSettings("material-pro:export-animation", d) : d;
+  });
   const [progress, setProgress] = useState<number | null>(null);
   const set = (p: Partial<typeof s>) => setS((x) => ({ ...x, ...p }));
   const run = async () => {
-    localStorage.setItem("material-pro:export-animation", JSON.stringify(s));
+    if (getPrefs().rememberAnimExport) localStorage.setItem("material-pro:export-animation", JSON.stringify(s));
     setProgress(0);
     const name = `${editor.title}_${gen.name}`;
-    const blob = await exportAnimation(editor.renderer!, gen, output, { ...s, size: 2 ** s.sizeExp }, name, setProgress);
+    const blob = await exportAnimation(editor.renderer!, gen, output, { ...s, size: 2 ** s.sizeExp, height: 2 ** (s.heightExp ?? s.sizeExp) }, name, setProgress);
     downloadBlob(blob, s.spritesheet === 0 ? `${name}_frames.zip` : `${name}_spritesheet.png`);
     setProgress(null);
     editor.setStatus(t("Exported {0} frames", s.images));
@@ -109,11 +114,19 @@ function AnimationDialog({ gen, output, onClose }: { gen: Gen; output: number; o
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 560 }}>
         <h2>{t("Export animation —")}{" "}{gen.getTypeName()}</h2>
         <div className="dlg-grid">
-          <label>{t("Size")}</label>
+          <label>{t("Width")}</label>
           <select value={s.sizeExp} onChange={(e) => set({ sizeExp: +e.target.value })}>
             {SIZES.map((i) => (
               <option key={i} value={i}>
-                {2 ** i}×{2 ** i}
+                {2 ** i}
+              </option>
+            ))}
+          </select>
+          <label>{t("Height")}</label>
+          <select value={s.heightExp ?? s.sizeExp} onChange={(e) => set({ heightExp: +e.target.value })}>
+            {SIZES.map((i) => (
+              <option key={i} value={i}>
+                {2 ** i}
               </option>
             ))}
           </select>
@@ -159,7 +172,7 @@ function AnimationDialog({ gen, output, onClose }: { gen: Gen; output: number; o
 }
 
 function TaaDialog({ gen, output, onClose }: { gen: Gen; output: number; onClose: () => void }) {
-  const [sizeExp, setSizeExp] = useState(9);
+  const [dims, setDims] = useState<[number, number]>([512, 512]);
   const [s, setS] = useState<TaaSettings>({ gamma: 1, denoise: 0, radius: 1, sigma: 1, kSigma: 1, threshold: 0.1 });
   const [iteration, setIteration] = useState(0);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -169,10 +182,10 @@ function TaaDialog({ gen, output, onClose }: { gen: Gen; output: number; onClose
   pausedRef.current = paused;
   const settings = useRef(s);
   settings.current = s;
-  const size = 2 ** sizeExp;
+  const [width, height] = dims;
   useEffect(() => {
     const r = editor.renderer!;
-    const t = new TaaRender(r, gen, output, size);
+    const t = new TaaRender(r, gen, output, width, height);
     taa.current = t;
     let raf = 0;
     const loop = () => {
@@ -199,7 +212,7 @@ function TaaDialog({ gen, output, onClose }: { gen: Gen; output: number; onClose
       t.dispose();
       taa.current = null;
     };
-  }, [gen, output, size]);
+  }, [gen, output, width, height]);
   useEffect(() => {
     const t = taa.current;
     if (t && editor.renderer && canvas.current) editor.renderer.present(t.resolve(s), canvas.current.getContext("2d")!, false);
@@ -211,16 +224,12 @@ function TaaDialog({ gen, output, onClose }: { gen: Gen; output: number; onClose
         <h2>{t("TAA render —")}{" "}{gen.getTypeName()}</h2>
         <p style={{ color: "var(--text2)", marginTop: 0 }}>{t("Accumulates renders with sub-pixel jitter (and the time moving), then averages them: anti-aliasing for shapes and noise.")}</p>
         <div style={{ display: "flex", gap: 12 }}>
-          <canvas ref={canvas} width={size} height={size} style={{ width: 320, height: 320, background: "#000" }} />
+          <canvas ref={canvas} width={width} height={height} style={{ width: width >= height ? 320 : (320 * width) / height, height: height >= width ? 320 : (320 * height) / width, background: "#000" }} />
           <div className="dlg-grid" style={{ alignContent: "start" }}>
-            <label>{t("Size")}</label>
-            <select value={sizeExp} onChange={(e) => setSizeExp(+e.target.value)}>
-              {[8, 9, 10, 11, 12].map((i) => (
-                <option key={i} value={i}>
-                  {2 ** i}×{2 ** i}
-                </option>
-              ))}
-            </select>
+            <label>{t("Width")}</label>
+            <input type="number" min={16} max={8192} step={16} defaultValue={width} onBlur={(e) => setDims([Math.min(8192, Math.max(16, Math.round(+e.target.value))), height])} onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} />
+            <label>{t("Height")}</label>
+            <input type="number" min={16} max={8192} step={16} defaultValue={height} onBlur={(e) => setDims([width, Math.min(8192, Math.max(16, Math.round(+e.target.value)))])} onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} />
             <label>{t("Gamma")}</label>
             <input type="number" step={0.1} min={0.1} value={s.gamma} onChange={(e) => set({ gamma: +e.target.value })} />
             <label>{t("Denoise")}</label>
@@ -262,6 +271,15 @@ function TaaDialog({ gen, output, onClose }: { gen: Gen; output: number; onClose
             }}
           >
             {t("Export PNG…")}
+          </button>
+          <button
+            onClick={() => {
+              const tr = taa.current;
+              if (!tr) return;
+              downloadBlob(targetExr(editor.renderer!, tr.resolve(s)), `${editor.title}_${gen.name}_taa.exr`);
+            }}
+          >
+            {t("Export EXR…")}
           </button>
         </div>
       </div>

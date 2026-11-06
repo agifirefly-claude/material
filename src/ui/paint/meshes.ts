@@ -2,6 +2,7 @@
 import * as THREE from "three";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { makeMesh, type PaintMesh } from "../../engine/paint/mesh";
 
@@ -10,6 +11,7 @@ export async function loadModelGeometry(name: string, data: ArrayBuffer | Uint8A
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
   let root: THREE.Object3D;
   if (/\.obj$/i.test(name)) root = new OBJLoader().parse(new TextDecoder().decode(bytes));
+  else if (/\.fbx$/i.test(name)) root = new FBXLoader().parse(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, "");
   else {
     const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
     root = (await new GLTFLoader().parseAsync(/\.gltf$/i.test(name) ? new TextDecoder().decode(bytes) : buf, "")).scene;

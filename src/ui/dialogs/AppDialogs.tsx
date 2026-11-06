@@ -57,10 +57,28 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
         </select>
       </Row>
       <Row label={t("Confirm when closing a project")}>{check("confirmCloseProject")}</Row>
+      <Row label={t("Confirm when leaving with unsaved changes")}>{check("confirmQuit")}</Row>
+      <Row label={t("Remember animation export settings")}>{check("rememberAnimExport")}</Row>
       <Row label={t("Dim background when showing dialogs")}>{check("dimBackground")}</Row>
       <Row label={t("Save the project in the browser as you work")}>{check("autosave")}</Row>
+      <div className="sect">{t("Theme")}</div>
+      <Row label={t("Base color")}>
+        <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input type="color" value={p.themeBase || "#1d1f23"} onChange={(e) => setPrefs({ themeBase: e.target.value })} />
+          <button onClick={() => setPrefs({ themeBase: "", themeAccent: "", themeContrast: 1 })}>{t("Default theme")}</button>
+        </span>
+      </Row>
+      <Row label={t("Accent color")}>
+        <input type="color" value={p.themeAccent || "#4f9cf0"} onChange={(e) => setPrefs({ themeAccent: e.target.value })} />
+      </Row>
+      <Row label={t("Contrast")}>
+        <input type="range" min={0.5} max={2} step={0.05} value={p.themeContrast} onChange={(e) => setPrefs({ themeContrast: +e.target.value, themeBase: p.themeBase || "#1d1f23" })} />
+      </Row>
       <div className="sect">{t("Graph")}</div>
       <Row label={t("Auto size comment node to selection")}>{check("autoSizeComment")}</Row>
+      <Row label={t("Minimize button on nodes")}>{check("nodeMinimizeButton")}</Row>
+      <Row label={t("Close button on nodes")}>{check("nodeCloseButton")}</Row>
+      <Row label={t("Portal labels beside the port (otherwise above)")}>{check("portalLabelSide")}</Row>
       <Row label={t("Size of new materials")}>
         <select value={p.defaultMaterialSize} onChange={(e) => setPrefs({ defaultMaterialSize: +e.target.value })}>
           {[8, 9, 10, 11, 12, 13].map((i) => (
@@ -85,6 +103,24 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           {[256, 512, 1024, 2048].map((i) => (
             <option key={i} value={i}>
               {i}{t("px")}
+            </option>
+          ))}
+        </select>
+      </Row>
+      <Row label={t("Tessellation detail")}>
+        <select value={p.tessellationDetail} onChange={(e) => setPrefs({ tessellationDetail: +e.target.value })}>
+          {[2, 4, 6, 8].map((i) => (
+            <option key={i} value={i}>
+              ×{i}
+            </option>
+          ))}
+        </select>
+      </Row>
+      <Row label={t("Frame rate limit")}>
+        <select value={p.fpsLimit} onChange={(e) => setPrefs({ fpsLimit: +e.target.value })}>
+          {[0, 15, 30, 60].map((i) => (
+            <option key={i} value={i}>
+              {i ? i + " fps" : t("none")}
             </option>
           ))}
         </select>

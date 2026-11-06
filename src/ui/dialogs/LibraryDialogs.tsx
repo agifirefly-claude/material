@@ -16,7 +16,8 @@ export function nodeIcon(gen: Gen): string | undefined {
   const outs = gen instanceof GenMaterial ? gen.getOutputDefs(true) : gen.getOutputDefs();
   if (!outs.length) return undefined;
   try {
-    const target = r.render(gen.getShaderCode("uv", Math.max(0, gen.preview), new GenContext()), 64);
+    // output 0 through its preview, at 64×64, like main_window.add_selection_to_library (generator.render(self, 0, 64, true))
+    const target = r.render(gen.getShaderCode("uv", 0, new GenContext()), 64);
     const img = r.toImageData(target);
     r.deleteTarget(target);
     const c = document.createElement("canvas");

@@ -1,7 +1,8 @@
 import { memo, useCallback, useEffect, useState } from "react";
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from "@xyflow/react";
 import type { Gen, PortDef } from "../engine/gen/base";
-import { GenComment, GenGraph, GenIOs, GenRemote, GenReroute } from "../engine/gen/graph";
+import { GenComment, GenGraph, GenIOs, GenPortal, GenRemote, GenReroute } from "../engine/gen/graph";
+import { usePrefs } from "./prefs";
 import { GenMaterial } from "../engine/gen/misc";
 import { GenBuffer, GenIterateBuffer } from "../engine/gen/texture";
 import { registry } from "../engine/registry";
@@ -43,6 +44,7 @@ export function portLabel(p: PortDef, i: number, output: boolean): string {
 function MMNodeInner({ id, data, selected }: NodeProps & { data: NodeData }) {
   useEditor();
   useLang();
+  const prefs = usePrefs();
   const g = data.gen;
   const update = useUpdateNodeInternals();
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +59,23 @@ function MMNodeInner({ id, data, selected }: NodeProps & { data: NodeData }) {
       <div className="mm-comment" style={{ width: g.size.x, height: g.size.y }}>
         <div className="t">{g.title}</div>
         <pre>{g.text}</pre>
+      </div>
+    );
+  }
+  if (g instanceof GenPortal) {
+    // Material Maker's aperture: a dot with its link name beside it, or above it (aperture_label_position)
+    const type = g.io === 0 ? g.getInputDefs()[0]?.type : g.getOutputDefs()[0]?.type;
+    const c = g.color;
+    return (
+      <div className={"mm-portal" + (prefs.portalLabelSide ? " side" : " top") + (g.io === 0 ? " in" : " out") + (selected ? " selected" : "")} title={t(g.getTypeName())}>
+        <span className="mm-portal-label">{String(g.parameters.link ?? "")}</span>
+        <span className="mm-portal-dot" style={{ background: `rgb(${c.r * 255},${c.g * 255},${c.b * 255})` }}>
+          {g.io === 0 ? (
+            <Handle type="target" id="i0" position={Position.Left} className={slotClass(type)} style={{ background: portColor(type), left: -6 }} />
+          ) : (
+            <Handle type="source" id="o0" position={Position.Right} className={slotClass(type)} style={{ background: portColor(type), right: -6 }} />
+          )}
+        </span>
       </div>
     );
   }
@@ -85,6 +104,16 @@ function MMNodeInner({ id, data, selected }: NodeProps & { data: NodeData }) {
           <span className="badge" title={t("Double click to open")}>
             {t("graph")}
           </span>
+        )}
+        {prefs.nodeMinimizeButton && (
+          <button className="node-btn nodrag" title={g.minimized ? t("Show parameters") : t("Hide parameters")} onClick={() => ((g.minimized = !g.minimized), editor.emit())}>
+            {g.minimized ? "▢" : "–"}
+          </button>
+        )}
+        {prefs.nodeCloseButton && g.canBeDeleted() && (
+          <button className="node-btn nodrag" title={t("Delete")} onClick={() => g.parent && (g.parent as unknown as GenGraph).removeGenerator(g)}>
+            ×
+          </button>
         )}
       </div>
       <div className="ports">
@@ -116,7 +145,7 @@ function MMNodeInner({ id, data, selected }: NodeProps & { data: NodeData }) {
           ))}
         </div>
       )}
-      {showPreview && <PreviewCanvas gen={g} output={previewOutput} size={128} display={110} className="preview" onError={onError} />}
+      {showPreview && <PreviewCanvas gen={g} output={previewOutput} size={prefs.nodePreviewSize} display={110} className="preview" onError={onError} />}
       {error && <div className="err">{error}</div>}
       {isMaterial && <div className="err" style={{ color: "var(--text3)" }}>{t("Material output — see the 3D view")}</div>}
     </div>
