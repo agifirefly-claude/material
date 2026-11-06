@@ -223,6 +223,7 @@
 			"\tbrick_fill *= 4096.0;",
 			"\tbrick_fill = round(brick_fill);",
 			"\tbrick_fill /= 4096.0;",
+			"\tbrick_fill.xy = fract(brick_fill.xy);",
 			"\t",
 			"\tbrick_uv.z = rand(brick_fill.xy);",
 			"\t",

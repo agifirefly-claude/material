@@ -57,6 +57,9 @@ jobs:
       - name: WebGL harness (every node and example)
         run: npm run test:gl 2>&1 | tee "$LOGS/harness.log"
 
+      - name: Generators tile
+        run: npm run test:tiling 2>&1 | tee "$LOGS/tiling.log"
+
       - name: End-to-end checks
         run: npm run test:e2e 2>&1 | tee "$LOGS/e2e.log"
 

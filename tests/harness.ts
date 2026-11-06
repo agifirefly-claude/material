@@ -476,3 +476,81 @@ window.paintTest = async (size) => {
   out.export_albedo = targetUrl(r, r.render(material.getShaderCode("uv", 0, new GenContext()), size));
   return out;
 };
+
+declare global {
+  interface Window {
+    tileSeam: (type: string, output: number, size: number, seed?: number) => Promise<{ x: number; y: number; png: string }>;
+  }
+}
+/** whether a node's output repeats with period 1: the share of pixels (in %) that differ by more than 2/255
+ * between the render at uv and at uv shifted by one tile in x and in y */
+window.tileSeam = async (type, output, size, seed) => {
+  const r = await rp;
+  const g = new GenGraph();
+  const n = createGen({ type })!;
+  g.addGenerator(n);
+  if (seed !== undefined) n.seedValue = 0.137 + 0.291 * seed;
+  const at = (uv: string) => {
+    const t = r.render(n.getShaderCode(uv, output, new GenContext()), size);
+    const d = r.toImageData(t).data;
+    r.deleteTarget(t);
+    return d;
+  };
+  const base = at("uv");
+  const diff = (o: Uint8ClampedArray) => {
+    let bad = 0;
+    for (let i = 0; i < base.length; i += 4) if (Math.max(Math.abs(base[i] - o[i]), Math.abs(base[i + 1] - o[i + 1]), Math.abs(base[i + 2] - o[i + 2]), Math.abs(base[i + 3] - o[i + 3])) > 2) bad++;
+    return (100 * bad) / (size * size);
+  };
+  const x = diff(at("(uv+vec2(1.0, 0.0))"));
+  const y = diff(at("(uv+vec2(0.0, 1.0))"));
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  c.getContext("2d")!.putImageData(new ImageData(base, size, size), 0, 0);
+  return { x, y, png: c.toDataURL("image/png") };
+};
+
+declare global {
+  interface Window {
+    brickTypes: () => Promise<string[]>;
+  }
+}
+window.brickTypes = async () => {
+  await rp;
+  return Object.keys(registry.nodes).filter((n) => /brick/.test(n)).sort();
+};
+declare global {
+  interface Window {
+    outputCount: (type: string) => Promise<number>;
+  }
+}
+window.outputCount = async (type) => {
+  await rp;
+  const g = new GenGraph();
+  const n = createGen({ type })!;
+  g.addGenerator(n);
+  return n.getOutputDefs().length;
+};
+declare global {
+  interface Window {
+    generatorTypes: () => Promise<string[]>;
+  }
+}
+/** library nodes with no inputs and an image output: the generators */
+window.generatorTypes = async () => {
+  await rp;
+  const out: string[] = [];
+  for (const t of Object.keys(registry.nodes).sort()) {
+    try {
+      const g = new GenGraph();
+      const n = createGen({ type: t });
+      if (!n) continue;
+      g.addGenerator(n);
+      const outs = n.getOutputDefs();
+      if (n.getInputDefs().length === 0 && outs.length && outs.every((o) => ["f", "rgb", "rgba", "fill"].includes(o.type))) out.push(t);
+    } catch {
+      /* not a plain node */
+    }
+  }
+  return out;
+};

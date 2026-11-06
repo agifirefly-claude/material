@@ -45,6 +45,43 @@ if (mode === "all" || mode === "exports") {
   }
   if (bad) failed = true;
 }
+if (mode === "tiling") {
+  // node tests/run-harness.mjs tiling [type...]: whether nodes tile (by default every generator and brick node);
+  // prints, per output, the share of pixels (%) that change one tile over
+  const types = process.argv.slice(3);
+  // Checked: the render at uv equals the render one tile over (uv + (1,0), uv + (0,1)). Not checked:
+  const EXEMPT = {
+    // not meant to tile
+    bricks_nontileable: "by design",
+    box: "a shape", sphere: "a shape", circular_gradient: "a gradient", spiral_gradient: "a gradient",
+    sine_wave: "a wave line across the tile", mesh_curvature: "baked from a mesh",
+    // tile, but are only defined on one tile, which this check goes beyond
+    bricks_uneven: "subdivides the unit square, so no brick crosses the edge",
+    // each grid cell has its own random value and the cells line up with the tile edge, so the edge is one more
+    // cell boundary; the infinite plane is not periodic because the hash takes absolute cell numbers
+    color_noise: "independent cells", noise_color: "independent cells", noise_white: "independent cells",
+    truchet: "independent cells", iching: "independent cells", runes: "independent cells", diagonal_weave: "independent cells",
+    noise_anisotropic: "rows are independent; wraps horizontally",
+  };
+  const list = types.length ? types : [...new Set([...(await page.evaluate(() => window.generatorTypes())), ...(await page.evaluate(() => window.brickTypes()))])].sort().filter((t) => !(t in EXEMPT));
+  for (const t of list) {
+    const outs = await page.evaluate((t) => window.outputCount(t), t);
+    const per = [];
+    for (let o = 0; o < outs; o++) {
+      let worst = 0;
+      for (const seed of [0, 1, 2]) {
+        const r = await page.evaluate(([t, o, s]) => window.tileSeam(t, o, 256, s), [t, o, seed]);
+        worst = Math.max(worst, r.x, r.y);
+        if (process.env.TILING_PNG) fs.writeFileSync(`${process.env.TILING_PNG}/${t}_${o}_${seed}.png`, Buffer.from(r.png.split(",")[1], "base64"));
+      }
+      per.push(worst);
+    }
+    // under 1%: pixels exactly on a cell boundary can round to either cell, inside the tile as much as at its edge
+    const bad = per.some((w) => w > 1);
+    if (bad) failed = true;
+    console.log(`${bad ? "SEAM" : "ok  "} ${t}: ${per.map((w) => w.toFixed(2)).join(" ")}`);
+  }
+}
 if (mode === "export-text") {
   const [type, profile, file = "0"] = process.argv.slice(3);
   console.log(await page.evaluate(([t, p, f]) => window.exportText(t, p, +f), [type, profile, file]));
