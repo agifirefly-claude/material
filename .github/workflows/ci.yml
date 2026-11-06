@@ -70,7 +70,12 @@ jobs:
         run: npm run test:worker 2>&1 | tee "$LOGS/worker.log"
 
       - name: Desktop app self test
-        run: npm run electron:smoke 2>&1 | tee "$LOGS/electron.log"
+        run: |
+          # Chromium's setuid sandbox helper must be root-owned with mode 4755 (the runners restrict user namespaces)
+          node node_modules/electron/install.js
+          sudo chown root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+          npm run electron:smoke 2>&1 | tee "$LOGS/electron.log"
 
       - name: UI regression
         run: npm run test:ui 2>&1 | tee "$LOGS/ui.log"
