@@ -155,3 +155,17 @@ select { padding: 2px 4px; }
 .modal h2 { margin: 0 0 10px; font-size: 15px; }
 .examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
 .examples button { padding: 8px; text-align: left; }
+
+/* Easy SDF editor */
+.sdf-editor { display: flex; flex-direction: column; gap: 6px; }
+.sdf-tree { border: 1px solid var(--line); border-radius: 4px; background: var(--bg); max-height: 260px; overflow: auto; padding: 2px 0; }
+.sdf-row { display: flex; align-items: center; gap: 4px; padding: 1px 4px; cursor: pointer; user-select: none; white-space: nowrap; }
+.sdf-row:hover { background: var(--bg3); }
+.sdf-row.sel { background: var(--accent2); color: #fff; }
+.sdf-row.hidden .sdf-name { opacity: .45; text-decoration: line-through; }
+.sdf-row .grow { flex: 1; }
+.sdf-row .sdf-type { color: var(--text3); font-size: 10px; }
+.sdf-row.sel .sdf-type { color: #cfe0f5; }
+.sdf-row button { padding: 0 4px; font-size: 10px; line-height: 14px; background: transparent; border-color: transparent; opacity: .6; }
+.sdf-row:hover button, .sdf-row.sel button { opacity: 1; }
+.sdf-row button:hover { border-color: var(--line); }

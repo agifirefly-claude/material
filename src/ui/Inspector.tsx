@@ -10,6 +10,8 @@ import { registry } from "../engine/registry";
 import { buildFragmentShader, withPreview } from "../engine/render/shader-source";
 import { ParamControl, paramLabel } from "./widgets/ParamControl";
 import { portColor, portLabel } from "./NodeView";
+import { GenSDF } from "../engine/gen/sdf";
+import { SdfEditor } from "./SdfEditor";
 
 const KW = /\b(if|else|for|while|return|const|uniform|in|out|inout|break|continue|true|false|discard)\b/;
 const TY = /\b(void|float|int|bool|[iub]?vec[234]|mat[234]|sampler2D)\b/;
@@ -118,6 +120,7 @@ function Params({ g }: { g: Gen }) {
           <input type="number" min={1} max={16} value={g.genericSize} onChange={(e) => g.setGenericSize(Math.max(1, +e.target.value))} />
         </div>
       )}
+      {g instanceof GenSDF && <SdfEditor gen={g} />}
       {g instanceof GenRemote && <RemoteEditor r={g} />}
       {g instanceof GenIOs && <IOsEditor ios={g} />}
       {g instanceof GenGraph && !(g instanceof GenMaterial) && (
