@@ -565,5 +565,8 @@ export const EXTRA: Record<string, Record<string, string>> = {
     "Spritesheet, 2 columns": "精灵图，2 列",
     "Spritesheet, 4 columns": "精灵图，4 列",
     "Spritesheet, 8 columns": "精灵图，8 列",
+    "Search the manual": "搜索手册",
+    "Cannot load the manual: {0}": "无法加载手册：{0}",
+    "Nothing found": "没有找到",
   },
 };

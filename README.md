@@ -1,6 +1,8 @@
 # Material Pro
 
-[Material Maker](https://github.com/RodZill4/material-maker) 的 Web 版重构：在浏览器里用节点图生成程序化贴图和 PBR 材质。节点库、示例、着色器代码生成规则和引擎导出模板都来自 Material Maker，用 TypeScript + WebGL2 重新实现，不需要安装，也不依赖 Godot。
+在浏览器里用节点图生成程序化贴图和 PBR 材质的独立应用。它最初由 [Material Maker](https://github.com/RodZill4/material-maker) 重构而来：节点库、示例、着色器代码生成规则和引擎导出模板都源自 Material Maker，用 TypeScript + WebGL2 重新实现，不需要安装，也不依赖 Godot。
+
+现在节点库等数据是本项目自己维护的源码（`library/`），不再与 Material Maker 同步；Material Maker 的后续更新只作为参考。来源与许可证见 [NOTICE.md](NOTICE.md)，维护方法见 [docs/节点库维护.md](docs/节点库维护.md)，使用说明见 [docs/用户手册.md](docs/用户手册.md)。
 
 每个材质都是一张完整的节点图，可以逐个节点查看参数、端口连接、上游依赖，以及这个节点每个输出最终生成的 GLSL。
 
@@ -34,7 +36,9 @@ npm run dev
 | 命令 | 作用 |
 | --- | --- |
 | `npm run build` | 生成数据、类型检查、生产构建到 `dist/` |
-| `npm run data` | 从 `third_party/material-maker` 重新生成 `public/data`（节点、示例、模板） |
+| `npm run data` | 从 `library/` 重新生成 `public/data`（节点、示例、菜单、模板、翻译），并把 `docs/用户手册.md` 复制为应用内“帮助 → 用户手册”显示的 `public/docs/manual.md` |
+| `npm run check:i18n` | 列出没有中文翻译的界面字符串和节点库字符串（节点名、参数、端口、说明、菜单），应为 0 |
+| `npm run compare:reference -- <material-maker 目录>` | 只读地列出 `library/` 与某个 Material Maker 版本的差异，供人工参考 |
 | `npm run typecheck` | 类型检查 |
 | `npm test` | 单元测试 |
 | `node tests/run-harness.mjs nodes` | 在无头 Chromium 里编译全部节点 |
@@ -60,7 +64,7 @@ npm run dev
 
 其中有 7 个节点和 1 个示例在 Material Maker 原版里单独使用也编译不过，这里一并修正了：
 
-- `bricks_nontileable` 调用的函数已在上游 `bricks` 节点里改名为 `oldbricks_*`、`oldbrick*`。修正放在 `third_party/material-maker/patches.json`，构建数据时应用，上游原文件保持不动。
+- `bricks_nontileable` 调用的函数已在上游 `bricks` 节点里改名为 `oldbricks_*`、`oldbrick*`。修正直接写在 `library/nodes/bricks_nontileable.json` 里。
 - `brush_triplanar` 和用到它的 `mesh_3d` 读取模型的包围盒、位置贴图和法线贴图；这些变量原版只在预览着色器里声明。现在渲染器在用到时声明，并绑定当前模型的烘焙贴图。
 - `fast_blur_shader` 在输入未连接时采样一个颜色值：未连接时改为给一张空贴图。
 - `kaleidoscope`、`kaleidoscope2` 在输入未连接时，默认值拼出了逗号表达式：未连接时只取坐标参数。
@@ -79,7 +83,7 @@ Material Maker 的节点代码按桌面 GLSL 4.50 写（在 Godot 里作为 Vulk
 
 | 目录 | 内容 | 对应 Material Maker |
 | --- | --- | --- |
-| `third_party/material-maker/` | 原样保留的节点定义、示例、库、模板、着色器函数和许可证 | `addons/material_maker/nodes`、`material_maker/examples`、`material_maker/library` |
+| `library/` | 本项目维护的节点库：节点定义、示例、节点菜单和图标、笔刷、端口类型和预览函数、导出模板、着色器公共函数、翻译 | 源自 `addons/material_maker/nodes`、`material_maker/examples`、`material_maker/library`、`material_maker/locale` |
 | `src/engine/gen/` | 节点类型：着色器节点、图、输入输出、参数面板、开关、Buffer、迭代 Buffer、图片、文字、材质、网格贴图…… | `engine/nodes/gen_*.gd` |
 | `src/engine/params/` | 参数类型：渐变、曲线、多边形、样条、像素、网格变形 | `types/*.gd` |
 | `src/engine/loader.ts` | 由文件数据创建节点 | `engine/loader.gd` |
@@ -130,4 +134,4 @@ Material Maker 的节点代码按桌面 GLSL 4.50 写（在 Godot 里作为 Vulk
 
 ## 许可证
 
-MIT。节点库、示例和模板来自 Material Maker（MIT，© 2018-present Rodolphe Suescun and contributors），许可证见 `third_party/material-maker/LICENSE.md`。HDR 环境贴图来自 Poly Haven（CC0）。
+MIT。节点库、示例和模板来自 Material Maker（MIT，© 2018-present Rodolphe Suescun and contributors），许可证见 `library/LICENSE-material-maker.md`。HDR 环境贴图来自 Poly Haven（CC0）。详细说明见 [NOTICE.md](NOTICE.md)。

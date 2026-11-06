@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:gl": "node tests/run-harness.mjs all",
     "check:i18n": "node scripts/check-i18n.mjs",
-    "test:e2e": "node tests/e2e.mjs"
+    "test:e2e": "node tests/e2e.mjs",
+    "compare:reference": "node scripts/compare-reference.mjs"
   },
   "repository": {
     "type": "git",

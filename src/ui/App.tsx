@@ -22,6 +22,7 @@ import { DialogHost } from "./dialogs/AppDialogs";
 import { openDialog } from "./dialogs/bus";
 import { getPrefs, setPrefs, usePrefs } from "./prefs";
 import * as graphActions from "./graph/actions";
+import { openManual } from "./Manual";
 
 /** asks before replacing a project with changes (confirm_close_project) */
 function confirmDiscard(): boolean {
@@ -233,7 +234,7 @@ export function App() {
         <Menu label={t("Help")}>
           {(close) => (
             <>
-              <button onClick={() => (close(), window.open("https://rodzill4.github.io/material-maker/doc/", "_blank"))}>{t("User manual")}</button>
+              <button onClick={() => (close(), openManual())}>{t("User manual")}</button>
               <button onClick={() => (close(), openDialog("about"))}>{t("About…")}</button>
             </>
           )}
