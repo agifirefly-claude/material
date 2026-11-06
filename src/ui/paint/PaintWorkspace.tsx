@@ -17,6 +17,7 @@ import { encodePng } from "../../engine/paint/project";
 import { exportProfiles, planExport, expressionShaderCode } from "../../engine/export";
 import { GenContext } from "../../engine/context";
 import { editor } from "../store";
+import { t } from "../i18n";
 
 export function PaintWorkspace() {
   usePaint();
@@ -65,7 +66,7 @@ export function PaintWorkspace() {
           <PaintView />
           {show2d && <Paint2D />}
           <button className="paint-2d-toggle" onClick={() => setShow2d(!show2d)}>
-            {show2d ? "Hide 2D view" : "2D texture view"}
+            {show2d ? t("Hide 2D view") : t("2D texture view")}
           </button>
         </div>
         <div className="paint-graph">
@@ -83,7 +84,7 @@ export function PaintWorkspace() {
             ] as const
           ).map(([k, l]) => (
             <button key={k} className={right === k ? "on" : ""} onClick={() => setRight(k)}>
-              {l}
+              {t(l)}
             </button>
           ))}
         </div>
@@ -128,35 +129,35 @@ export function NewPaintDialog({ onClose }: { onClose: () => void }) {
   return (
     <div className="modal-back" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: "min(520px, 92vw)" }}>
-        <h2>New paint project</h2>
-        <p style={{ color: "var(--text2)", marginTop: 0 }}>Paint materials on a model with layers and brushes. The model needs a UV layout; its mesh maps are baked for the brushes.</p>
+        <h2>{t("New paint project")}</h2>
+        <p style={{ color: "var(--text2)", marginTop: 0 }}>{t("Paint materials on a model with layers and brushes. The model needs a UV layout; its mesh maps are baked for the brushes.")}</p>
         <div className="insp" style={{ padding: 0 }}>
           <div className="row">
-            <label>Model</label>
+            <label>{t("Model")}</label>
             <select value={kind} onChange={(e) => setKind(e.target.value)}>
               {Object.keys(BUILTIN_MESHES).map((k) => (
                 <option key={k} value={k}>
-                  {k}
+                  {t(k)}
                 </option>
               ))}
-              <option value="file">from a file…</option>
+              <option value="file">{t("from a file…")}</option>
             </select>
           </div>
           {kind === "file" && (
             <div className="row">
-              <label>File</label>
+              <label>{t("File")}</label>
               <button
                 onClick={async () => {
                   const [f] = await pickFiles(".obj,.glb,.gltf");
                   if (f) setFile(f);
                 }}
               >
-                {file ? file.name : "Choose .obj / .glb / .gltf…"}
+                {file ? file.name : t("Choose .obj / .glb / .gltf…")}
               </button>
             </div>
           )}
           <div className="row">
-            <label>Texture size</label>
+            <label>{t("Texture size")}</label>
             <select value={size} onChange={(e) => setSize(+e.target.value)}>
               {[8, 9, 10, 11, 12].map((i) => (
                 <option key={i} value={i}>
@@ -168,9 +169,9 @@ export function NewPaintDialog({ onClose }: { onClose: () => void }) {
           {error && <div className="err">{error}</div>}
           <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
             <span style={{ color: "var(--text3)", flex: 1 }}>{busy}</span>
-            <button onClick={onClose}>Cancel</button>
+            <button onClick={onClose}>{t("Cancel")}</button>
             <button className="primary" disabled={!!busy || (kind === "file" && !file)} onClick={create}>
-              Create
+              {t("Create")}
             </button>
           </div>
         </div>
@@ -183,11 +184,11 @@ export async function openPaintProject() {
   const files = await pickFiles(".zip,.mmpp,.png,.obj,.glb,.gltf", true);
   if (!files.length) return;
   try {
-    editor.setStatus("Opening the paint project…");
+    editor.setStatus(t("Opening the paint project…"));
     await paint.load(files);
     editor.setStatus("");
   } catch (e) {
-    editor.setStatus("Cannot open: " + (e as Error).message);
+    editor.setStatus(t("Cannot open: {0}", (e as Error).message));
   }
 }
 
@@ -237,20 +238,20 @@ export function PaintMenuItems({ close, onNew }: { close: () => void; onNew: () 
   return (
     <>
       <hr />
-      <div className="label">Painting</div>
-      <button onClick={() => (close(), onNew())}>New paint project…</button>
-      <button onClick={() => (close(), openPaintProject())}>Open paint project… (.mmpp.zip, or .mmpp with its files)</button>
+      <div className="label">{t("Painting")}</div>
+      <button onClick={() => (close(), onNew())}>{t("New paint project…")}</button>
+      <button onClick={() => (close(), openPaintProject())}>{t("Open paint project… (.mmpp.zip, or .mmpp with its files)")}</button>
       {p && (
         <>
-          <button onClick={() => (close(), paint.save())}>Save paint project</button>
-          <button onClick={() => (close(), exportPaintMaps())}>Export painted maps (zip)</button>
-          <div className="label">Export the painted material for</div>
+          <button onClick={() => (close(), paint.save())}>{t("Save paint project")}</button>
+          <button onClick={() => (close(), exportPaintMaps())}>{t("Export painted maps (zip)")}</button>
+          <div className="label">{t("Export the painted material for")}</div>
           {paintExportProfiles().map((prof) => (
             <button key={prof} onClick={() => (close(), exportPaintForEngine(prof))}>
               {prof}
             </button>
           ))}
-          <button onClick={() => (close(), paint.close())}>Close paint project</button>
+          <button onClick={() => (close(), paint.close())}>{t("Close paint project")}</button>
         </>
       )}
     </>

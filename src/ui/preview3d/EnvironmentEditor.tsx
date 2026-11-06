@@ -7,6 +7,7 @@ import { BUNDLED_HDRIS, deleteEnvironment, ensureThumbnail, hdrLabel, isReadOnly
 import { getSettings, updateSettings } from "./settings";
 import { ColorEdit } from "../widgets/ColorEdit";
 import { FloatEdit } from "../widgets/FloatEdit";
+import { t } from "../i18n";
 
 type FloatKey = "sky_energy" | "ambient_light_energy" | "ambient_light_sky_contribution" | "sun_energy" | "sun_direction" | "sun_angle";
 const FLOATS: [FloatKey, string, number, number, number][] = [
@@ -49,32 +50,32 @@ export function EnvironmentEditor({ onClose }: { onClose: () => void }) {
     <div className="modal-back" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal env-editor" onKeyDown={(e) => e.key === "Escape" && onClose()}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-          <h2 style={{ margin: 0, flex: 1 }}>Environments</h2>
-          <button onClick={onClose}>Close</button>
+          <h2 style={{ margin: 0, flex: 1 }}>{t("Environments")}</h2>
+          <button onClick={onClose}>{t("Close")}</button>
         </div>
         <div className="env-editor-body">
           <div className="env-list">
             {list.map((e, i) => (
-              <div key={i} className={"env-item" + (i === sel ? " sel" : "")} onClick={() => select(i)} title={isReadOnly(i) ? "Material Maker environment (read only)" : "Your environment"}>
+              <div key={i} className={"env-item" + (i === sel ? " sel" : "")} onClick={() => select(i)} title={isReadOnly(i) ? t("Material Maker environment (read only)") : t("Your environment")}>
                 {e.thumbnail ? <img src={"data:image/png;base64," + e.thumbnail} alt="" /> : <div className="env-thumb-empty" />}
                 <span>{e.name}</span>
               </div>
             ))}
-            <div className="env-item" onClick={() => select(newEnvironment(sel))} title="Copy the selected environment into a new one you can edit">
+            <div className="env-item" onClick={() => select(newEnvironment(sel))} title={t("Copy the selected environment into a new one you can edit")}>
               <div className="env-thumb-empty">+</div>
-              <span>New…</span>
+              <span>{t("New…")}</span>
             </div>
           </div>
           {env && (
             <div className="env-fields insp">
               {preview && <img className="env-preview" src={"data:image/png;base64," + preview} alt="" />}
-              {ro && <div style={{ color: "var(--text3)" }}>Material Maker's environments cannot be changed: use New… to make an editable copy.</div>}
+              {ro && <div style={{ color: "var(--text3)" }}>{t("Material Maker's environments cannot be changed: use New… to make an editable copy.")}</div>}
               <div className="row">
-                <label>Name</label>
+                <label>{t("Name")}</label>
                 <input type="text" value={env.name} disabled={ro} onChange={(e) => set("name", e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
               </div>
               <div className="row">
-                <label>HDR image</label>
+                <label>{t("HDR image")}</label>
                 <div style={{ display: "flex", gap: 4 }}>
                   <select
                     disabled={ro}
@@ -91,7 +92,7 @@ export function EnvironmentEditor({ onClose }: { onClose: () => void }) {
                   </select>
                   <button
                     disabled={ro}
-                    title="Use an .hdr image of your own (kept in this browser)"
+                    title={t("Use an .hdr image of your own (kept in this browser)")}
                     onClick={() => {
                       const input = document.createElement("input");
                       input.type = "file";
@@ -103,23 +104,23 @@ export function EnvironmentEditor({ onClose }: { onClose: () => void }) {
                       input.click();
                     }}
                   >
-                    Upload…
+                    {t("Upload…")}
                   </button>
                 </div>
               </div>
               <div className="row">
-                <label>Show color</label>
+                <label>{t("Show color")}</label>
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   <input type="checkbox" disabled={ro} checked={env.show_color} onChange={(e) => set("show_color", e.target.checked)} />
                   <ColorEdit value={env.color} onChange={(c) => !ro && set("color", { type: "Color", ...c })} />
                 </div>
               </div>
               <div className="row">
-                <label>Ambient light color</label>
+                <label>{t("Ambient light color")}</label>
                 <ColorEdit value={env.ambient_light_color} onChange={(c) => !ro && set("ambient_light_color", { type: "Color", ...c })} />
               </div>
               <div className="row">
-                <label>Sun color</label>
+                <label>{t("Sun color")}</label>
                 <ColorEdit value={env.sun_color} onChange={(c) => !ro && set("sun_color", { type: "Color", ...c })} />
               </div>
               {FLOATS.map(([k, label, min, max, step]) => (
@@ -135,7 +136,7 @@ export function EnvironmentEditor({ onClose }: { onClose: () => void }) {
                     select(Math.max(0, sel - 1));
                   }}
                 >
-                  Delete this environment
+                  {t("Delete this environment")}
                 </button>
               )}
             </div>

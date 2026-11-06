@@ -64,16 +64,16 @@ export function ParamControl({ gen, def, compact }: { gen: Gen; def: ParameterDe
     case "gradient":
       return <GradientEdit value={valueAs(value, Gradient, def.default)} onChange={set} compact={compact} />;
     case "curve":
-      return compact ? <span className="pl">curve</span> : <CurveEdit value={valueAs(value, Curve, def.default)} onChange={set} />;
+      return compact ? <span className="pl">{t("curve")}</span> : <CurveEdit value={valueAs(value, Curve, def.default)} onChange={set} />;
     case "polygon":
     case "polyline":
       return compact ? <span className="pl">{def.type}</span> : <PolygonEdit value={valueAs(value, Polygon, def.default)} closed={def.type === "polygon"} onChange={set} />;
     case "lattice":
-      return compact ? <span className="pl">lattice</span> : <LatticeEdit value={valueAs(value, Lattice, def.default)} onChange={set} />;
+      return compact ? <span className="pl">{t("lattice")}</span> : <LatticeEdit value={valueAs(value, Lattice, def.default)} onChange={set} />;
     case "splines":
-      return compact ? <span className="pl">splines</span> : <SplinesEdit value={valueAs(value, Splines, def.default)} onChange={set} />;
+      return compact ? <span className="pl">{t("splines")}</span> : <SplinesEdit value={valueAs(value, Splines, def.default)} onChange={set} />;
     case "pixels":
-      return compact ? <span className="pl">pixels</span> : <PixelsEdit value={valueAs(value, Pixels, def.default)} onChange={set} />;
+      return compact ? <span className="pl">{t("pixels")}</span> : <PixelsEdit value={valueAs(value, Pixels, def.default)} onChange={set} />;
     case "image_path":
       return (
         <div style={{ display: "flex", gap: 4 }}>
@@ -93,9 +93,9 @@ export function ParamControl({ gen, def, compact }: { gen: Gen; def: ParameterDe
               input.click();
             }}
           >
-            {value ? "Replace image…" : "Load image…"}
+            {value ? t("Replace image…") : t("Load image…")}
           </button>
-          {!compact && <input type="text" placeholder="or an image URL" value={String(value ?? "").startsWith("data:") ? "" : String(value ?? "")} onChange={(e) => set(e.target.value)} />}
+          {!compact && <input type="text" placeholder={t("or an image URL")} value={String(value ?? "").startsWith("data:") ? "" : String(value ?? "")} onChange={(e) => set(e.target.value)} />}
         </div>
       );
     case "string":

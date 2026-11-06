@@ -74,7 +74,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
         <select value={p.nodePreviewSize} onChange={(e) => setPrefs({ nodePreviewSize: +e.target.value })}>
           {[64, 96, 128, 192, 256].map((i) => (
             <option key={i} value={i}>
-              {i}px
+              {i}{t("px")}
             </option>
           ))}
         </select>
@@ -84,7 +84,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
         <select value={p.preview3dResolution} onChange={(e) => setPrefs({ preview3dResolution: +e.target.value })}>
           {[256, 512, 1024, 2048].map((i) => (
             <option key={i} value={i}>
-              {i}px
+              {i}{t("px")}
             </option>
           ))}
         </select>
@@ -114,10 +114,10 @@ export function AboutDialog({ onClose }: { onClose: () => void }) {
   useLang();
   return (
     <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 480 }}>
-      <h2>Material Pro</h2>
+      <h2>{t("Material Pro")}</h2>
       <p>{t("A web port of Material Maker: procedural textures and materials made with node graphs, in the browser.")}</p>
       <p style={{ color: "var(--text2)" }}>
-        Material Maker © 2018-present Rodolphe Suescun and contributors — MIT
+        {t("Material Maker © 2018-present Rodolphe Suescun and contributors — MIT")}
         <br />
         <a href="https://github.com/RodZill4/material-maker" target="_blank" rel="noreferrer">
           github.com/RodZill4/material-maker

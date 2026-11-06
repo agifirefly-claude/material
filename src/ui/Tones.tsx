@@ -6,6 +6,7 @@ import { GenContext } from "../engine/context";
 import { isColor, type Color } from "../engine/params/types";
 import { withPreview } from "../engine/render/shader-source";
 import { editor, useEditor } from "./store";
+import { t } from "./i18n";
 
 const MODES = ["Luminance", "Red", "Green", "Blue", "Alpha"] as const;
 const CURSORS = [
@@ -128,18 +129,18 @@ export function TonesEditor({ gen }: { gen: Gen }) {
         <select value={mode} onChange={(e) => setMode(+e.target.value)}>
           {MODES.map((m, i) => (
             <option key={m} value={i}>
-              {m}
+              {t(m)}
             </option>
           ))}
         </select>
-        <button onClick={auto} disabled={!bins} title="Fit the input levels to the histogram">
-          Auto
+        <button onClick={auto} disabled={!bins} title={t("Fit the input levels to the histogram")}>
+          {t("Auto")}
         </button>
-        <button onClick={reset}>Reset</button>
+        <button onClick={reset}>{t("Reset")}</button>
       </div>
       <div className="tones-hist" style={{ width: W, height: H + 24 }}>
         <canvas ref={canvas} width={W} height={H} style={{ top: 12 }} />
-        {!src && <div className="tones-empty">Connect an input to see its histogram</div>}
+        {!src && <div className="tones-empty">{t("Connect an input to see its histogram")}</div>}
         {CURSORS.map((c) => (
           <svg
             key={c.p}

@@ -393,7 +393,7 @@ function NodeMenu({ x, y, gen, onClose }: { x: number; y: number; gen: Gen; onCl
   return (
     <div className="menu-list" style={{ position: "fixed", left: x, top: Math.min(y, window.innerHeight - 520), maxHeight: "80vh" }} onMouseLeave={onClose}>
       {isSub && <button onClick={run(() => editor.enter(gen.name))}>{t("Open subgraph")}</button>}
-      {(gen instanceof GenShader || isSub) && <button onClick={run(() => openDialog("edit-node", gen))}>{gen instanceof GenMaterial ? t("Edit material…") : isSub ? t("Edit graph…") : t("Edit node…")} (Ctrl+E)</button>}
+      {(gen instanceof GenShader || isSub) && <button onClick={run(() => openDialog("edit-node", gen))}>{gen instanceof GenMaterial ? t("Edit material…") : isSub ? t("Edit graph…") : t("Edit node…")}{" "}{t("(Ctrl+E)")}</button>}
       {(gen instanceof GenShader || isSub) && gen.isTemplate() && <button onClick={run(() => (gen.toggleEditable(), gen.changed()))}>{t("Make editable (detach from the library)")}</button>}
       {outs.length > 1 &&
         outs.map((o, i) => (
@@ -424,7 +424,7 @@ function NodeMenu({ x, y, gen, onClose }: { x: number; y: number; gen: Gen; onCl
       >
         {t("Rename…")}
       </button>
-      {ins.length > 1 && <button onClick={run(() => (editor.select([gen.name]), act.swapInputs()))}>{t("Swap inputs")} (Alt+S)</button>}
+      {ins.length > 1 && <button onClick={run(() => (editor.select([gen.name]), act.swapInputs()))}>{t("Swap inputs")}{" "}{t("(Alt+S)")}</button>}
       {ins.map((p, i) => (
         <button key={"r" + i} onClick={run(() => act.toggleRerouteOnInput(gen, i))}>
           {t("Reroute input")} “{portLabel(p, i, false)}”
@@ -440,7 +440,7 @@ function NodeMenu({ x, y, gen, onClose }: { x: number; y: number; gen: Gen; onCl
       >
         {t("Duplicate")}
       </button>
-      <button onClick={run(() => act.duplicateWithInputs())}>{t("Duplicate with inputs")} (Ctrl+Shift+D)</button>
+      <button onClick={run(() => act.duplicateWithInputs())}>{t("Duplicate with inputs")}{" "}{t("(Ctrl+Shift+D)")}</button>
       <button onClick={run(() => groupSelection())}>{t("Group selection into subgraph")}</button>
       {isSub && <button onClick={run(() => (editor.select([gen.name]), act.expandSelectedSubgraph()))}>{t("Expand subgraph into this graph")}</button>}
       {!(gen instanceof GenComment || gen instanceof GenCommentLine) && <button onClick={run(() => openDialog("add-to-library", gen))}>{t("Add to a library…")}</button>}
@@ -480,11 +480,11 @@ function Toolbar() {
         <button onClick={() => setOpen(open === "select" ? "" : "select")}>{t("Select")} ▾</button>
         {open === "select" && (
           <div className="menu-list" onMouseLeave={() => setOpen("")}>
-            <button onClick={close(act.selectAll)}>{t("Select all")} (Ctrl+A)</button>
-            <button onClick={close(act.selectNone)}>{t("Select none")} (Ctrl+Shift+A)</button>
-            <button onClick={close(act.selectInvert)}>{t("Invert selection")} (Ctrl+I)</button>
+            <button onClick={close(act.selectAll)}>{t("Select all")}{" "}{t("(Ctrl+A)")}</button>
+            <button onClick={close(act.selectNone)}>{t("Select none")}{" "}{t("(Ctrl+Shift+A)")}</button>
+            <button onClick={close(act.selectInvert)}>{t("Invert selection")}{" "}{t("(Ctrl+I)")}</button>
             <hr />
-            <button onClick={close(act.minimizeSelection)}>{t("Minimize / restore selection")} (Ctrl+M)</button>
+            <button onClick={close(act.minimizeSelection)}>{t("Minimize / restore selection")}{" "}{t("(Ctrl+M)")}</button>
             <button onClick={close(() => act.addComment())}>{t("Add a comment around the selection")}</button>
           </div>
         )}
@@ -503,7 +503,7 @@ function Toolbar() {
           </div>
         )}
       </div>
-      <button onClick={() => window.dispatchEvent(new Event("mm-find-node"))} title="Ctrl+F">
+      <button onClick={() => window.dispatchEvent(new Event("mm-find-node"))} title={t("Ctrl+F")}>
         {t("Find")}
       </button>
       {sub && (

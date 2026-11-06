@@ -6,6 +6,7 @@ import type { Gen, ParameterDef } from "../../engine/gen/base";
 import { Lattice, Pixels, Polygon, Splines } from "../../engine/params/types";
 import { editor } from "../store";
 import { posToUv, posToValue, uvToPos, valueToPos, type View } from "./view";
+import { t } from "../i18n";
 
 type P = { x: number; y: number };
 type Kind = 0 | 1 | 2 | 3 | 4; // simple, rect, radius, scale, rotate-scale
@@ -313,7 +314,7 @@ function ComplexEditor({ gen, def, view, size, local }: { gen: Gen; def: Paramet
                 e.stopPropagation();
               }}
             >
-              <title>Click to add a point</title>
+              <title>{t("Click to add a point")}</title>
             </circle>
           );
         })}
@@ -427,7 +428,7 @@ function ComplexEditor({ gen, def, view, size, local }: { gen: Gen; def: Paramet
         onPointerMove={(ev) => ev.buttons && paint(ev)}
         onPointerUp={() => editor.snapshot()}
       >
-        <title>Paint pixels: left button with the last palette colour, right button or shift with the first</title>
+        <title>{t("Paint pixels: left button with the last palette colour, right button or shift with the first")}</title>
       </rect>
     );
   }

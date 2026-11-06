@@ -8,6 +8,7 @@ import { ensureThumbnail, isReadOnly, useEnvironments } from "./environments";
 import { EnvironmentEditor } from "./EnvironmentEditor";
 import { TONEMAP_LABELS } from "./postprocess";
 import { FloatEdit } from "../widgets/FloatEdit";
+import { t } from "../i18n";
 
 function Panel({ label, title, children }: { label: string; title?: string; children: (close: () => void) => React.ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -36,11 +37,11 @@ export function ModelMenu({ onLoadModel, hasCustom }: { onLoadModel: () => void;
   const os = objectSettings(obj.key);
   const [linked, setLinked] = useState(os.uvScale[0] === os.uvScale[1]);
   return (
-    <Panel label={obj.label} title="Model">
+    <Panel label={t(obj.label)} title={t("Model")}>
       {() => (
         <div className="insp" style={{ padding: 4, minWidth: 260 }}>
           <div className="row">
-            <label>Model</label>
+            <label>{t("Model")}</label>
             <select
               value={obj.key}
               onChange={(e) => {
@@ -50,40 +51,40 @@ export function ModelMenu({ onLoadModel, hasCustom }: { onLoadModel: () => void;
             >
               {PREVIEW_OBJECTS.map((o) => (
                 <option key={o.key} value={o.key}>
-                  {o.label}
+                  {t(o.label)}
                 </option>
               ))}
             </select>
           </div>
-          <button onClick={onLoadModel}>Load a model… (.obj, .glb, .gltf)</button>
-          <div className="sect">Configure {obj.label}</div>
+          <button onClick={onLoadModel}>{t("Load a model… (.obj, .glb, .gltf)")}</button>
+          <div className="sect">{t("Configure {0}", t(obj.label))}</div>
           <div className="row">
-            <label>UV scale</label>
+            <label>{t("UV scale")}</label>
             <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
               <FloatEdit value={os.uvScale[0]} min={0.1} max={10} step={0.1} allowExpr={false} onChange={(v) => updateObject(obj.key, { uvScale: [Number(v), linked ? Number(v) : os.uvScale[1]] })} />
               {!linked && <FloatEdit value={os.uvScale[1]} min={0.1} max={10} step={0.1} allowExpr={false} onChange={(v) => updateObject(obj.key, { uvScale: [os.uvScale[0], Number(v)] })} />}
-              <button title="Same scale in both directions" className={linked ? "on" : ""} onClick={() => setLinked(!linked)}>
+              <button title={t("Same scale in both directions")} className={linked ? "on" : ""} onClick={() => setLinked(!linked)}>
                 🔗
               </button>
             </div>
           </div>
           {obj.canTessellate && (
             <div className="row">
-              <label>Tessellated</label>
+              <label>{t("Tessellated")}</label>
               <input type="checkbox" checked={os.tessellated} onChange={(e) => updateObject(obj.key, { tessellated: e.target.checked })} />
             </div>
           )}
           {obj.params.map((p) => (
             <div className="row" key={p.name}>
-              <label>{p.label}</label>
+              <label>{t(p.label)}</label>
               <FloatEdit value={os.params[p.name] ?? p.default} min={p.min} max={p.max} step={0.01} allowExpr={false} onChange={(v) => updateObject(obj.key, { params: { ...os.params, [p.name]: Number(v) } })} />
             </div>
           ))}
-          <div className="sect">Rotation</div>
+          <div className="sect">{t("Rotation")}</div>
           <div style={{ display: "flex", gap: 2 }}>
             {SPEEDS.map((l, i) => (
               <button key={l} className={s.rotationSpeed === i ? "on" : ""} onClick={() => updateSettings({ rotationSpeed: i })}>
-                {l}
+                {t(l)}
               </button>
             ))}
           </div>
@@ -103,7 +104,7 @@ export function EnvironmentMenu() {
   const cur = list[s.environment] ?? list[0];
   return (
     <>
-      <Panel label={cur?.name ?? "Environment"} title="Environment">
+      <Panel label={cur?.name ?? t("Environment")} title={t("Environment")}>
         {(close) => (
           <div style={{ padding: 4, width: 250 }}>
             <div className="env-grid">
@@ -114,7 +115,7 @@ export function EnvironmentMenu() {
               ))}
             </div>
             <label style={{ display: "flex", gap: 6, margin: "6px 0" }}>
-              <input type="checkbox" checked={s.clearBackground} onChange={(e) => updateSettings({ clearBackground: e.target.checked })} /> Clear background
+              <input type="checkbox" checked={s.clearBackground} onChange={(e) => updateSettings({ clearBackground: e.target.checked })} />{" "}{t("Clear background")}
             </label>
             <button
               onClick={() => {
@@ -122,7 +123,7 @@ export function EnvironmentMenu() {
                 setEditing(true);
               }}
             >
-              Environment editor…
+              {t("Environment editor…")}
             </button>
           </div>
         )}
@@ -142,16 +143,16 @@ export function PostProcessMenu() {
     </div>
   );
   return (
-    <Panel label="Post process" title="Post processing">
+    <Panel label={t("Post process")} title={t("Post processing")}>
       {() => (
         <div className="insp" style={{ padding: 4, minWidth: 260 }}>
-          <div className="sect">Tonemap</div>
+          <div className="sect">{t("Tonemap")}</div>
           <div className="row">
-            <label>Mode</label>
+            <label>{t("Mode")}</label>
             <select value={p.tonemap} onChange={(e) => updatePost({ tonemap: e.target.value as PostProcess["tonemap"] })}>
               {Object.entries(TONEMAP_LABELS).map(([k, l]) => (
                 <option key={k} value={k}>
-                  {l}
+                  {t(l)}
                 </option>
               ))}
             </select>
@@ -159,23 +160,23 @@ export function PostProcessMenu() {
           {f("exposure", "Exposure", 0, 4)}
           <div className="sect">
             <label>
-              <input type="checkbox" checked={p.glow} onChange={(e) => updatePost({ glow: e.target.checked })} /> Glow
+              <input type="checkbox" checked={p.glow} onChange={(e) => updatePost({ glow: e.target.checked })} />{" "}{t("Glow")}
             </label>
           </div>
           {p.glow && [f("glowIntensity", "Intensity", 0, 4), f("glowStrength", "Strength", 0, 2), f("glowThreshold", "Threshold", 0, 4)]}
           <div className="sect">
             <label>
-              <input type="checkbox" checked={p.adjust} onChange={(e) => updatePost({ adjust: e.target.checked })} /> Adjustments
+              <input type="checkbox" checked={p.adjust} onChange={(e) => updatePost({ adjust: e.target.checked })} />{" "}{t("Adjustments")}
             </label>
           </div>
           {p.adjust && [f("brightness", "Brightness", 0, 4), f("contrast", "Contrast", 0, 4), f("saturation", "Saturation", 0, 4)]}
           <div className="sect">
             <label>
-              <input type="checkbox" checked={p.dof} onChange={(e) => updatePost({ dof: e.target.checked })} /> Depth of field
+              <input type="checkbox" checked={p.dof} onChange={(e) => updatePost({ dof: e.target.checked })} />{" "}{t("Depth of field")}
             </label>
           </div>
           {p.dof && [f("dofAperture", "Aperture", 0, 0.02, 0.0005), f("dofMaxBlur", "Max blur", 0, 0.05, 0.001)]}
-          <button onClick={() => updatePost({ ...DEFAULT_POST })}>Reset</button>
+          <button onClick={() => updatePost({ ...DEFAULT_POST })}>{t("Reset")}</button>
         </div>
       )}
     </Panel>
@@ -185,19 +186,19 @@ export function PostProcessMenu() {
 export function CameraMenu({ onReset }: { onReset: () => void }) {
   const s = usePreview3DSettings();
   return (
-    <Panel label="Camera" title="Camera and light">
+    <Panel label={t("Camera")} title={t("Camera and light")}>
       {() => (
         <div className="insp" style={{ padding: 4, minWidth: 240 }}>
-          <button onClick={onReset}>Reset camera and model rotation</button>
+          <button onClick={onReset}>{t("Reset camera and model rotation")}</button>
           <div className="row">
-            <label>Field of view</label>
+            <label>{t("Field of view")}</label>
             <FloatEdit value={s.fov} min={10} max={90} step={1} allowExpr={false} onChange={(v) => updateSettings({ fov: Number(v) })} />
           </div>
           <div className="row">
-            <label>Sun shadow</label>
+            <label>{t("Sun shadow")}</label>
             <input type="checkbox" checked={s.sunShadow} onChange={(e) => updateSettings({ sunShadow: e.target.checked })} />
           </div>
-          <div style={{ color: "var(--text3)" }}>Drag: orbit · Ctrl+drag: turn the model · right drag: pan · wheel: zoom · Ctrl+wheel: field of view</div>
+          <div style={{ color: "var(--text3)" }}>{t("Drag: orbit · Ctrl+drag: turn the model · right drag: pan · wheel: zoom · Ctrl+wheel: field of view")}</div>
         </div>
       )}
     </Panel>

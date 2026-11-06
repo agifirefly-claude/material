@@ -6,6 +6,7 @@ import { css } from "./widgets/ColorEdit";
 import { gradientCss } from "./widgets/GradientEdit";
 
 import { COLOR_MIME, GRADIENT_MIME } from "./widgets/dnd";
+import { t } from "./i18n";
 
 interface RefImage {
   url: string;
@@ -197,10 +198,10 @@ export function ReferencePanel() {
             input.click();
           }}
         >
-          Add image…
+          {t("Add image…")}
         </button>
         <button disabled={!current} onClick={() => references.remove()}>
-          Remove
+          {t("Remove")}
         </button>
         {references.images.length > 1 && (
           <>
@@ -211,8 +212,8 @@ export function ReferencePanel() {
             <button onClick={() => references.go(references.index + 1)}>›</button>
           </>
         )}
-        <label title="Show pixels without filtering">
-          <input type="checkbox" checked={nearest} onChange={(e) => setNearest(e.target.checked)} /> nearest
+        <label title={t("Show pixels without filtering")}>
+          <input type="checkbox" checked={nearest} onChange={(e) => setNearest(e.target.checked)} />{" "}{t("nearest")}
         </label>
       </div>
       {current && (
@@ -254,7 +255,7 @@ export function ReferencePanel() {
             references.emit();
           }}
         />
-        {!current && <div className="empty" style={{ position: "absolute" }}>Add, drop or paste reference images; pick colours and gradients from them.</div>}
+        {!current && <div className="empty" style={{ position: "absolute" }}>{t("Add, drop or paste reference images; pick colours and gradients from them.")}</div>}
       </div>
     </div>
   );

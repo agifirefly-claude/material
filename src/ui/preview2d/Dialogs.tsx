@@ -5,6 +5,7 @@ import type { Gen } from "../../engine/gen/base";
 import { editor } from "../store";
 import { downloadBlob } from "../exporting";
 import { canvasBlob, canvasOf, exportAnimation, renderImage, TaaRender, type AnimationSettings, type TaaSettings } from "./exports";
+import { t } from "../i18n";
 
 export type DialogRequest = { kind: "animation" | "taa"; gen?: Gen; output?: number };
 
@@ -39,7 +40,7 @@ export function ExportDialogsHost() {
       const d = (e as CustomEvent).detail as DialogRequest;
       const gen = d.gen ?? editor.selected;
       if (!gen || !gen.getOutputDefs().length) {
-        editor.setStatus("Select a node with an output first");
+        editor.setStatus(t("Select a node with an output first"));
         return;
       }
       setReq({ kind: d.kind, gen, output: d.output ?? Math.max(0, gen.preview) });
@@ -101,14 +102,14 @@ function AnimationDialog({ gen, output, onClose }: { gen: Gen; output: number; o
     const blob = await exportAnimation(editor.renderer!, gen, output, { ...s, size: 2 ** s.sizeExp }, name, setProgress);
     downloadBlob(blob, s.spritesheet === 0 ? `${name}_frames.zip` : `${name}_spritesheet.png`);
     setProgress(null);
-    editor.setStatus(`Exported ${s.images} frames`);
+    editor.setStatus(t("Exported {0} frames", s.images));
   };
   return (
     <div className="modal-back" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 560 }}>
-        <h2>Export animation — {gen.getTypeName()}</h2>
+        <h2>{t("Export animation —")}{" "}{gen.getTypeName()}</h2>
         <div className="dlg-grid">
-          <label>Size</label>
+          <label>{t("Size")}</label>
           <select value={s.sizeExp} onChange={(e) => set({ sizeExp: +e.target.value })}>
             {SIZES.map((i) => (
               <option key={i} value={i}>
@@ -116,17 +117,17 @@ function AnimationDialog({ gen, output, onClose }: { gen: Gen; output: number; o
               </option>
             ))}
           </select>
-          <label>Begin (s)</label>
+          <label>{t("Begin (s)")}</label>
           <input type="number" step={0.05} value={s.begin} onChange={(e) => set({ begin: +e.target.value })} />
-          <label>End (s)</label>
+          <label>{t("End (s)")}</label>
           <input type="number" step={0.05} value={s.end} onChange={(e) => set({ end: +e.target.value })} />
-          <label>Images</label>
+          <label>{t("Images")}</label>
           <input type="number" min={1} max={256} value={s.images} onChange={(e) => set({ images: Math.max(1, Math.round(+e.target.value)) })} />
-          <label>Layout</label>
+          <label>{t("Layout")}</label>
           <select value={s.spritesheet} onChange={(e) => set({ spritesheet: +e.target.value })}>
             {LAYOUTS.map(([v, l]) => (
               <option key={v} value={v}>
-                {l}
+                {t(l)}
               </option>
             ))}
           </select>
@@ -134,22 +135,22 @@ function AnimationDialog({ gen, output, onClose }: { gen: Gen; output: number; o
         <div className="dlg-thumbs">
           <figure>
             <Thumb gen={gen} output={output} time={s.begin} />
-            <figcaption>Begin</figcaption>
+            <figcaption>{t("Begin")}</figcaption>
           </figure>
           <figure>
             <AnimatedThumb gen={gen} output={output} begin={s.begin} end={s.end} />
-            <figcaption>Animated</figcaption>
+            <figcaption>{t("Animated")}</figcaption>
           </figure>
           <figure>
             <Thumb gen={gen} output={output} time={s.end} />
-            <figcaption>End</figcaption>
+            <figcaption>{t("End")}</figcaption>
           </figure>
         </div>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
           {progress !== null && <span>{Math.round(progress * 100)}%</span>}
-          <button onClick={onClose}>Close</button>
+          <button onClick={onClose}>{t("Close")}</button>
           <button className="primary" disabled={progress !== null} onClick={run}>
-            Export…
+            {t("Export…")}
           </button>
         </div>
       </div>
@@ -207,12 +208,12 @@ function TaaDialog({ gen, output, onClose }: { gen: Gen; output: number; onClose
   return (
     <div className="modal-back" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 620 }}>
-        <h2>TAA render — {gen.getTypeName()}</h2>
-        <p style={{ color: "var(--text2)", marginTop: 0 }}>Accumulates renders with sub-pixel jitter (and the time moving), then averages them: anti-aliasing for shapes and noise.</p>
+        <h2>{t("TAA render —")}{" "}{gen.getTypeName()}</h2>
+        <p style={{ color: "var(--text2)", marginTop: 0 }}>{t("Accumulates renders with sub-pixel jitter (and the time moving), then averages them: anti-aliasing for shapes and noise.")}</p>
         <div style={{ display: "flex", gap: 12 }}>
           <canvas ref={canvas} width={size} height={size} style={{ width: 320, height: 320, background: "#000" }} />
           <div className="dlg-grid" style={{ alignContent: "start" }}>
-            <label>Size</label>
+            <label>{t("Size")}</label>
             <select value={sizeExp} onChange={(e) => setSizeExp(+e.target.value)}>
               {[8, 9, 10, 11, 12].map((i) => (
                 <option key={i} value={i}>
@@ -220,37 +221,37 @@ function TaaDialog({ gen, output, onClose }: { gen: Gen; output: number; onClose
                 </option>
               ))}
             </select>
-            <label>Gamma</label>
+            <label>{t("Gamma")}</label>
             <input type="number" step={0.1} min={0.1} value={s.gamma} onChange={(e) => set({ gamma: +e.target.value })} />
-            <label>Denoise</label>
+            <label>{t("Denoise")}</label>
             <select value={s.denoise} onChange={(e) => set({ denoise: +e.target.value as 0 | 1 | 2 })}>
-              <option value={0}>None</option>
-              <option value={1}>Box</option>
-              <option value={2}>Smart</option>
+              <option value={0}>{t("None")}</option>
+              <option value={1}>{t("Box")}</option>
+              <option value={2}>{t("Smart")}</option>
             </select>
             {s.denoise === 1 && (
               <>
-                <label>Radius</label>
+                <label>{t("Radius")}</label>
                 <input type="number" min={1} max={8} value={s.radius} onChange={(e) => set({ radius: Math.round(+e.target.value) })} />
               </>
             )}
             {s.denoise === 2 && (
               <>
-                <label>Sigma</label>
+                <label>{t("Sigma")}</label>
                 <input type="number" step={0.1} min={0.1} value={s.sigma} onChange={(e) => set({ sigma: +e.target.value })} />
-                <label>kSigma</label>
+                <label>{t("kSigma")}</label>
                 <input type="number" step={0.1} min={0} value={s.kSigma} onChange={(e) => set({ kSigma: +e.target.value })} />
-                <label>Threshold</label>
+                <label>{t("Threshold")}</label>
                 <input type="number" step={0.01} min={0.01} value={s.threshold} onChange={(e) => set({ threshold: +e.target.value })} />
               </>
             )}
-            <label>Iterations</label>
+            <label>{t("Iterations")}</label>
             <span className="taa-iter">{iteration}</span>
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 10 }}>
-          <button onClick={() => setPaused(!paused)}>{paused ? "Resume" : "Pause"}</button>
-          <button onClick={onClose}>Close</button>
+          <button onClick={() => setPaused(!paused)}>{paused ? t("Resume") : t("Pause")}</button>
+          <button onClick={onClose}>{t("Close")}</button>
           <button
             className="primary"
             onClick={async () => {
@@ -260,7 +261,7 @@ function TaaDialog({ gen, output, onClose }: { gen: Gen; output: number; onClose
               downloadBlob(await canvasBlob(canvasOf(r.toImageData(t.resolve(s)))), `${editor.title}_${gen.name}_taa.png`);
             }}
           >
-            Export PNG…
+            {t("Export PNG…")}
           </button>
         </div>
       </div>

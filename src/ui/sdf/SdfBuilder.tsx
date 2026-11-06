@@ -15,6 +15,7 @@ import { FloatEdit } from "../widgets/FloatEdit";
 import { SdfEditor, find } from "../SdfEditor";
 import { View2D, controlPositions, controlShape, dragControl, itemControls, CONTROLS } from "./gizmos2d";
 import { arrowDrag, arrowEnds, gizmoFor, positionParams, ringDirection, ringPoints, rotationParams } from "./gizmos3d";
+import { t } from "../i18n";
 
 const SIZE = 512;
 const AXIS_COLORS = ["#ff5555", "#55dd55", "#5599ff"];
@@ -94,7 +95,7 @@ export function SdfBuilder({ gen, initialSel, onClose }: { gen: GenSDF; initialS
     dirty.current = false;
   };
   const close = () => {
-    if (dirty.current && !confirm("Close the SDF builder without applying the changes?")) return;
+    if (dirty.current && !confirm(t("Close the SDF builder without applying the changes?"))) return;
     onClose();
   };
 
@@ -102,9 +103,9 @@ export function SdfBuilder({ gen, initialSel, onClose }: { gen: GenSDF; initialS
     <div className="modal-back" onPointerDown={(e) => e.target === e.currentTarget && close()}>
       <div className="modal sdf-builder" onKeyDown={(e) => e.key === "Escape" && close()}>
         <div className="sdf-builder-head">
-          <h2>SDF builder — {gen.name}</h2>
+          <h2>{t("SDF builder —")}{" "}{gen.name}</h2>
           <span className="grow" />
-          <button onClick={apply}>Apply</button>
+          <button onClick={apply}>{t("Apply")}</button>
           <button
             className="primary"
             onClick={() => {
@@ -112,9 +113,9 @@ export function SdfBuilder({ gen, initialSel, onClose }: { gen: GenSDF; initialS
               onClose();
             }}
           >
-            OK
+            {t("OK")}
           </button>
-          <button onClick={() => (dirty.current = false, onClose())}>Cancel</button>
+          <button onClick={() => (dirty.current = false, onClose())}>{t("Cancel")}</button>
         </div>
         <div className="sdf-builder-body">
           <div className="sdf-builder-side insp">
@@ -124,7 +125,7 @@ export function SdfBuilder({ gen, initialSel, onClose }: { gen: GenSDF; initialS
           <div className="sdf-builder-view">
             <div className="tools">
               {!is3d && (
-                <select value={view.style} onChange={(e) => setView({ ...view, style: +e.target.value })} title="View">
+                <select value={view.style} onChange={(e) => setView({ ...view, style: +e.target.value })} title={t("View")}>
                   {SDF_VIEW_STYLES.map((s, i) => (
                     <option key={s} value={i}>
                       {s}
@@ -133,15 +134,15 @@ export function SdfBuilder({ gen, initialSel, onClose }: { gen: GenSDF; initialS
                 </select>
               )}
               <label>
-                <input type="checkbox" checked={gizmos} onChange={(e) => setGizmos(e.target.checked)} /> gizmo
+                <input type="checkbox" checked={gizmos} onChange={(e) => setGizmos(e.target.checked)} />{" "}{t("gizmo")}
               </label>
               {is3d && (
-                <label title="Align the gizmo with the item rather than the scene">
-                  <input type="checkbox" checked={localAxes} onChange={(e) => setLocalAxes(e.target.checked)} /> local
+                <label title={t("Align the gizmo with the item rather than the scene")}>
+                  <input type="checkbox" checked={localAxes} onChange={(e) => setLocalAxes(e.target.checked)} />{" "}{t("local")}
                 </label>
               )}
-              <button onClick={() => (is3d ? setCam({ yaw: 0.5, pitch: -0.35, dist: 3, target: [0, 0, 0] }) : setView({ ...view, center: { x: 0.5, y: 0.5 }, scale: 1.2 }))}>Reset view</button>
-              <span style={{ color: "var(--text3)" }}>{is3d ? "drag: turn · shift+drag: pan · wheel: zoom" : "drag: pan · wheel: zoom"}</span>
+              <button onClick={() => (is3d ? setCam({ yaw: 0.5, pitch: -0.35, dist: 3, target: [0, 0, 0] }) : setView({ ...view, center: { x: 0.5, y: 0.5 }, scale: 1.2 }))}>{t("Reset view")}</button>
+              <span style={{ color: "var(--text3)" }}>{is3d ? t("drag: turn · shift+drag: pan · wheel: zoom") : t("drag: pan · wheel: zoom")}</span>
             </div>
             <div className="sdf-builder-canvas" style={{ width: SIZE, height: SIZE }}>
               <canvas ref={canvas} width={SIZE} height={SIZE} />
@@ -151,7 +152,7 @@ export function SdfBuilder({ gen, initialSel, onClose }: { gen: GenSDF; initialS
                 <Overlay2D scene={scene} item={selected} view={view} setView={setView} show={gizmos} onParams={setItemParams} />
               )}
               {error && <div className="sdf-builder-error">{error}</div>}
-              {!scene.length && <div className="empty" style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>Add a 2D or 3D shape to the scene</div>}
+              {!scene.length && <div className="empty" style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>{t("Add a 2D or 3D shape to the scene")}</div>}
             </div>
           </div>
         </div>
@@ -323,7 +324,7 @@ function NodeParameters({ params, values, onChange }: { params: Dict[]; values: 
   return (
     <>
       <div className="sect" style={{ display: "flex", alignItems: "center" }}>
-        <span style={{ flex: 1 }}>Node parameters</span>
+        <span style={{ flex: 1 }}>{t("Node parameters")}</span>
         <button
           onClick={() => {
             let i = 1;
@@ -331,16 +332,16 @@ function NodeParameters({ params, values, onChange }: { params: Dict[]; values: 
             onChange([...params, { name: "param" + i, type: "float", min: 0, max: 1, step: 0.01, default: 0.5 }], { ...values, ["param" + i]: 0.5 });
           }}
         >
-          + Parameter
+          {t("+ Parameter")}
         </button>
       </div>
-      {!params.length && <div style={{ color: "var(--text3)" }}>None. Node parameters show on the node and can drive item parameters through expressions ($name).</div>}
+      {!params.length && <div style={{ color: "var(--text3)" }}>{t("None. Node parameters show on the node and can drive item parameters through expressions ($name).")}</div>}
       {params.map((p, i) => (
         <div key={i} className="sdf-nodeparam">
           <input
             type="text"
             defaultValue={p.name}
-            title="Name, used as $name in expressions"
+            title={t("Name, used as $name in expressions")}
             onBlur={(e) => {
               const n = e.currentTarget.value.trim();
               if (/^[A-Za-z_]\w*$/.test(n) && !exists(n, i)) {
@@ -353,21 +354,21 @@ function NodeParameters({ params, values, onChange }: { params: Dict[]; values: 
             }}
             onKeyDown={(e) => e.stopPropagation()}
           />
-          <input type="text" defaultValue={p.shortdesc ?? ""} placeholder="label" onBlur={(e) => set(i, e.currentTarget.value ? { shortdesc: e.currentTarget.value, label: e.currentTarget.value } : { shortdesc: undefined, label: undefined })} onKeyDown={(e) => e.stopPropagation()} />
+          <input type="text" defaultValue={p.shortdesc ?? ""} placeholder={t("label")} onBlur={(e) => set(i, e.currentTarget.value ? { shortdesc: e.currentTarget.value, label: e.currentTarget.value } : { shortdesc: undefined, label: undefined })} onKeyDown={(e) => e.stopPropagation()} />
           <FloatEdit value={values[p.name] ?? Number(p.default)} min={p.min} max={p.max} step={p.step} allowExpr={false} onChange={(v) => onChange(params.map((q, j) => (j === i ? { ...q, default: v } : q)), { ...values, [p.name]: Number(v) })} />
-          <button title="Move up" disabled={i === 0} onClick={() => onChange(params.map((_, j) => params[j === i ? i - 1 : j === i - 1 ? i : j]), values)}>
+          <button title={t("Move up")} disabled={i === 0} onClick={() => onChange(params.map((_, j) => params[j === i ? i - 1 : j === i - 1 ? i : j]), values)}>
             ↑
           </button>
-          <button title="Move down" disabled={i === params.length - 1} onClick={() => onChange(params.map((_, j) => params[j === i ? i + 1 : j === i + 1 ? i : j]), values)}>
+          <button title={t("Move down")} disabled={i === params.length - 1} onClick={() => onChange(params.map((_, j) => params[j === i ? i + 1 : j === i + 1 ? i : j]), values)}>
             ↓
           </button>
-          <button title="Remove" onClick={() => onChange(params.filter((_, j) => j !== i), values)}>
+          <button title={t("Remove")} onClick={() => onChange(params.filter((_, j) => j !== i), values)}>
             ✕
           </button>
           <div className="sdf-nodeparam-range">
-            min <input type="number" step="any" value={p.min} onChange={(e) => set(i, { min: +e.target.value })} />
-            max <input type="number" step="any" value={p.max} onChange={(e) => set(i, { max: +e.target.value })} />
-            step <input type="number" step="any" value={p.step} onChange={(e) => set(i, { step: +e.target.value })} />
+            {t("min")}{" "}<input type="number" step="any" value={p.min} onChange={(e) => set(i, { min: +e.target.value })} />
+            {t("max")}{" "}<input type="number" step="any" value={p.max} onChange={(e) => set(i, { max: +e.target.value })} />
+            {t("step")}{" "}<input type="number" step="any" value={p.step} onChange={(e) => set(i, { step: +e.target.value })} />
           </div>
         </div>
       ))}

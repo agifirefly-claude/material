@@ -47,7 +47,7 @@ export function Code({ text, max }: { text: string; max?: number }) {
 
 function copy(text: string) {
   navigator.clipboard?.writeText(text);
-  editor.setStatus("Copied to the clipboard");
+  editor.setStatus(t("Copied to the clipboard"));
 }
 
 export function Inspector() {
@@ -143,15 +143,15 @@ function Params({ g }: { g: Gen }) {
 }
 
 function PortTable({ ports, output, g }: { ports: PortDef[]; output: boolean; g: Gen }) {
-  if (!ports.length) return <div style={{ color: "var(--text3)" }}>None</div>;
+  if (!ports.length) return <div style={{ color: "var(--text3)" }}>{t("None")}</div>;
   return (
     <table>
       <thead>
         <tr>
           <th>#</th>
-          <th>Name</th>
-          <th>Type</th>
-          <th>{output ? "Goes to" : "Comes from"}</th>
+          <th>{t("Name")}</th>
+          <th>{t("Type")}</th>
+          <th>{output ? t("Goes to") : t("Comes from")}</th>
         </tr>
       </thead>
       <tbody>
@@ -167,7 +167,7 @@ function PortTable({ ports, output, g }: { ports: PortDef[]; output: boolean; g:
                 {registry.ioTypes[p.type]?.label ?? p.type}
               </td>
               <td>
-                {output ? links.join(", ") || "—" : src ? `${src.generator.getHierName() || src.generator.name}.out${src.outputIndex}` : <span style={{ color: "var(--text3)" }}>default: {String(p.default ?? "—")}</span>}
+                {output ? links.join(", ") || "—" : src ? `${src.generator.getHierName() || src.generator.name}.out${src.outputIndex}` : <span style={{ color: "var(--text3)" }}>{t("default:")}{" "}{String(p.default ?? "—")}</span>}
               </td>
             </tr>
           );
@@ -219,7 +219,7 @@ function Upstream({ g }: { g: Gen }) {
           </a>{" "}
           <span style={{ color: "var(--text3)" }}>
             {s.generator.getHierName() || s.generator.name}
-            {repeat ? " (see above)" : ""}
+            {repeat ? t(" (see above)") : ""}
           </span>
         </div>,
       );
@@ -228,7 +228,7 @@ function Upstream({ g }: { g: Gen }) {
     return rows;
   };
   const rows = walk(g, 0);
-  return rows.length ? <div>{rows}</div> : <div style={{ color: "var(--text3)" }}>Nothing is connected to this node's inputs.</div>;
+  return rows.length ? <div>{rows}</div> : <div style={{ color: "var(--text3)" }}>{t("Nothing is connected to this node's inputs.")}</div>;
 }
 
 /** opens the graph a node is in and selects it */
@@ -272,20 +272,20 @@ function CodeTab({ g }: { g: Gen }) {
             <select value={o} onChange={(e) => setOut(+e.target.value)}>
               {outs.map((p, i) => (
                 <option key={i} value={i}>
-                  Output {i}: {portLabel(p, i, true) || p.type}
+                  {t("Output")}{" "}{i}: {portLabel(p, i, true) || p.type}
                 </option>
               ))}
             </select>
             <label style={{ display: "flex", gap: 4 }}>
-              <input type="checkbox" checked={full} onChange={(e) => setFull(e.target.checked)} /> whole shader
+              <input type="checkbox" checked={full} onChange={(e) => setFull(e.target.checked)} />{" "}{t("whole shader")}
             </label>
-            {generated && "built" in generated && generated.built && <button onClick={() => copy(full ? generated.built.source : generated.built.body)}>Copy</button>}
+            {generated && "built" in generated && generated.built && <button onClick={() => copy(full ? generated.built.source : generated.built.body)}>{t("Copy")}</button>}
           </div>
           {generated && "error" in generated && <div className="err">{generated.error}</div>}
           {generated && "built" in generated && generated.built && (
             <>
               <div style={{ color: "var(--text3)" }}>
-                {generated.sc!.uniforms.length} uniforms · {generated.sc!.globals.length} global blocks · output type {registry.ioTypes[generated.sc!.outputType]?.label ?? generated.sc!.outputType}
+                {generated.sc!.uniforms.length}{" "}{t("uniforms ·")}{" "}{generated.sc!.globals.length}{" "}{t("global blocks · output type")}{" "}{registry.ioTypes[generated.sc!.outputType]?.label ?? generated.sc!.outputType}
               </div>
               <Code text={full ? generated.built.source : generated.built.body} max={520} />
               {generated.sc!.uniforms.length > 0 && (
@@ -340,7 +340,7 @@ function ShaderModel({ g }: { g: GenShader }) {
                 setEdit(true);
               }}
             >
-              JSON
+              {t("JSON")}
             </button>
           </>
         ) : (
@@ -354,13 +354,13 @@ function ShaderModel({ g }: { g: GenShader }) {
                   g.setShaderModel(d);
                   setEdit(false);
                 } catch (e) {
-                  alert("Not valid JSON: " + e);
+                  alert(t("Not valid JSON: {0}", e));
                 }
               }}
             >
-              Apply
+              {t("Apply")}
             </button>
-            <button onClick={() => setEdit(false)}>Cancel</button>
+            <button onClick={() => setEdit(false)}>{t("Cancel")}</button>
           </>
         )}
       </div>
@@ -371,9 +371,9 @@ function ShaderModel({ g }: { g: GenShader }) {
           <table>
             <thead>
               <tr>
-                <th>Parameter</th>
-                <th>Type</th>
-                <th>Value used in code</th>
+                <th>{t("Parameter")}</th>
+                <th>{t("Type")}</th>
+                <th>{t("Value used in code")}</th>
               </tr>
             </thead>
             <tbody>
@@ -392,9 +392,9 @@ function ShaderModel({ g }: { g: GenShader }) {
             <table>
               <thead>
                 <tr>
-                  <th>Input</th>
-                  <th>Type</th>
-                  <th>Default when unconnected</th>
+                  <th>{t("Input")}</th>
+                  <th>{t("Type")}</th>
+                  <th>{t("Default when unconnected")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -416,30 +416,30 @@ function ShaderModel({ g }: { g: GenShader }) {
           {(sm.outputs ?? []).map((o: Record<string, string>, i: number) => (
             <div key={i}>
               <div style={{ color: "var(--text3)" }}>
-                Output {i} ({o.type}){o.shortdesc ? ` — ${o.shortdesc}` : ""}
+                {t("Output")}{" "}{i} ({o.type}){o.shortdesc ? ` — ${o.shortdesc}` : ""}
               </div>
               <Code text={o[o.type] ?? ""} />
             </div>
           ))}
           {sm.code && (
             <>
-              <div style={{ color: "var(--text3)" }}>Code (run per pixel before the outputs)</div>
+              <div style={{ color: "var(--text3)" }}>{t("Code (run per pixel before the outputs)")}</div>
               <Code text={sm.code} max={260} />
             </>
           )}
           {sm.instance && (
             <>
-              <div style={{ color: "var(--text3)" }}>Instance (functions specific to this node)</div>
+              <div style={{ color: "var(--text3)" }}>{t("Instance (functions specific to this node)")}</div>
               <Code text={sm.instance} max={260} />
             </>
           )}
           {sm.global && (
             <>
-              <div style={{ color: "var(--text3)" }}>Global (shared functions)</div>
+              <div style={{ color: "var(--text3)" }}>{t("Global (shared functions)")}</div>
               <Code text={sm.global} max={260} />
             </>
           )}
-          {(sm.includes ?? []).length > 0 && <div style={{ color: "var(--text3)" }}>Includes the globals of: {sm.includes.join(", ")}</div>}
+          {(sm.includes ?? []).length > 0 && <div style={{ color: "var(--text3)" }}>{t("Includes the globals of:")}{" "}{sm.includes.join(", ")}</div>}
         </>
       )}
     </>
@@ -475,12 +475,12 @@ function GraphInfo({ graph, embedded }: { graph: GenGraph; embedded?: boolean })
       {!embedded && (
         <>
           <div style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>{graph === editor.root ? editor.title : t(graph.getTypeName())}</div>
-          <div style={{ color: "var(--text3)" }}>Select a node to see its parameters, ports and generated code.</div>
+          <div style={{ color: "var(--text3)" }}>{t("Select a node to see its parameters, ports and generated code.")}</div>
         </>
       )}
       <div className="sect">{t("Graph analysis (including subgraphs)")}</div>
       <div>
-        {stats.total} nodes · {stats.links} connections · {stats.subgraphs} subgraphs
+        {stats.total}{" "}{t("nodes ·")}{" "}{stats.links}{" "}{t("connections ·")}{" "}{stats.subgraphs}{" "}{t("subgraphs")}
       </div>
       <table>
         <tbody>
@@ -514,9 +514,9 @@ function RemoteEditor({ r }: { r: GenRemote }) {
         </div>
       ))}
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-        <button onClick={() => r.createNamedParameter("Parameter")}>+ Named parameter</button>
+        <button onClick={() => r.createNamedParameter("Parameter")}>{t("+ Named parameter")}</button>
         <select value={node} onChange={(e) => (setNode(e.target.value), setParam(""))}>
-          <option value="">Link a node's parameter…</option>
+          <option value="">{t("Link a node's parameter…")}</option>
           {graph?.children.filter((c) => c !== r && c.getParameterDefs().length).map((c) => (
             <option key={c.name} value={c.name}>
               {c.name} ({c.getTypeName()})
@@ -525,7 +525,7 @@ function RemoteEditor({ r }: { r: GenRemote }) {
         </select>
         {target && (
           <select value={param} onChange={(e) => setParam(e.target.value)}>
-            <option value="">parameter…</option>
+            <option value="">{t("parameter…")}</option>
             {target.getParameterDefs().map((p) => (
               <option key={p.name} value={p.name}>
                 {paramLabel(p)}
@@ -541,7 +541,7 @@ function RemoteEditor({ r }: { r: GenRemote }) {
             setParam("");
           }}
         >
-          Link
+          {t("Link")}
         </button>
       </div>
     </>
@@ -577,7 +577,7 @@ function IOsEditor({ ios }: { ios: GenIOs }) {
           </button>
         </div>
       ))}
-      <button onClick={() => (ios.ports.push({ name: "port" + ios.ports.length, type: "rgba" }), changed())}>+ Port</button>
+      <button onClick={() => (ios.ports.push({ name: "port" + ios.ports.length, type: "rgba" }), changed())}>{t("+ Port")}</button>
     </>
   );
 }
