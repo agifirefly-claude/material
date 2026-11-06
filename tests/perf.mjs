@@ -3,7 +3,9 @@
 //   - the page's long tasks (PerformanceObserver "longtask") and longest pause while a 2048² maps export renders
 //   - JS heap after the previews and after the export
 //   - whether the editor stays interactive while a 4096² maps export renders (frames, timer pauses, input latency)
+//   - "All maps (zip)" at 256²
 // Usage: node tests/perf.mjs [worker|main|both] [--example stylized_wall] [--root <checkout>] [--size 2048] [--big 4096]
+//   (--big 0 leaves the big export out)
 //   --root runs against another checkout (for the numbers before a change); "main" renders on the page (?render=main)
 import { createServer } from "vite";
 import path from "node:path";
@@ -75,6 +77,14 @@ async function measure(mode) {
   );
   const heapPreviews = await heap();
 
+  // "All maps (zip)" at 256²: small pictures, so what it takes is everything but the drawing of the maps
+  const smallMs = await page.evaluate(async () => {
+    const t0 = performance.now();
+    const m = await import("/src/ui/exporting.ts");
+    await m.exportMaterialMaps(256);
+    return performance.now() - t0;
+  });
+
   // a 2048² maps export: long tasks and the longest pause of the page meanwhile
   const exp = await page.evaluate(async (s) => {
     const from = window.__long.length;
@@ -85,21 +95,36 @@ async function measure(mode) {
       maxGap = Math.max(maxGap, n - last);
       last = n;
     }, 10);
+    const { editor } = await import("/src/ui/store.ts");
+    const svc = editor.renders;
+    // how long the maps take to render (RenderService.images), the rest is encoding and the zip
+    const images = svc.images;
+    let renderMs = 0;
+    svc.images = async (...a) => {
+      const t = performance.now();
+      const r = await images.apply(svc, a);
+      renderMs += performance.now() - t;
+      return r;
+    };
+    const draws = svc.stats?.renders ?? 0;
     const t0 = performance.now();
     const m = await import("/src/ui/exporting.ts");
     await m.exportMaterialMaps(s);
     const ms = performance.now() - t0;
+    svc.images = images;
     maxGap = Math.max(maxGap, performance.now() - last);
     clearInterval(tick);
     await new Promise((r) => setTimeout(r, 200));
     const long = window.__long.slice(from);
-    return { ms, maxGap, longTasks: long.length, longMs: long.reduce((a, e) => a + e.ms, 0), longest: long.reduce((a, e) => Math.max(a, e.ms), 0) };
+    return { ms, renderMs, draws: (svc.stats?.renders ?? 0) - draws, maxGap, longTasks: long.length, longMs: long.reduce((a, e) => a + e.ms, 0), longest: long.reduce((a, e) => Math.max(a, e.ms), 0) };
   }, size);
   const heapExport = await heap();
 
   // a 4096² export while the user works: frames drawn, timer pauses, and how long a click takes to be handled
   await page.evaluate((b) => {
     window.__ui = { frames: 0, maxGap: 0, running: true, done: false };
+    // --big 0: no big export
+    if (!b) return Object.assign(window.__ui, { done: true, ms: 0, running: false });
     let last = performance.now();
     const raf = () => {
       const n = performance.now();
@@ -138,7 +163,10 @@ async function measure(mode) {
     previewLongTasks: first.longTasks,
     previewLongestTaskMs: Math.round(first.longest),
     heapAfterPreviewsMB: heapPreviews,
+    smallExportMs: Math.round(smallMs),
     exportMs: Math.round(exp.ms),
+    exportRenderMs: Math.round(exp.renderMs),
+    exportDraws: exp.draws,
     exportLongTasks: exp.longTasks,
     exportLongTaskMs: Math.round(exp.longMs),
     exportLongestTaskMs: Math.round(exp.longest),

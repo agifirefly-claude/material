@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { editor, useEditor } from "./store";
+import { editor, useEditor, useStatus } from "./store";
 import { GraphView, ProjectTabs, groupSelection } from "./GraphView";
 import { Hierarchy, Library } from "./Library";
 import { Dock, PANEL_TITLES } from "./dock/Dock";
@@ -88,6 +88,20 @@ function Examples({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** the last status message, for 3 seconds; on its own, so a message re-renders nothing else */
+function Toast() {
+  const v = useStatus();
+  const [toast, setToast] = useState("");
+  useEffect(() => {
+    if (!editor.status) return;
+    setToast(editor.status);
+    editor.status = "";
+    const t = setTimeout(() => setToast(""), 3000);
+    return () => clearTimeout(t);
+  }, [v]);
+  return toast ? <div className="toast">{toast}</div> : null;
+}
+
 export function App() {
   useEditor();
   useLang();
@@ -114,7 +128,6 @@ export function App() {
     layouts: () => openDialog("layouts"),
     manual: () => openManual(),
   });
-  const [toast, setToast] = useState("");
   // Material Maker's confirm_quit: the browser asks before leaving with changes
   useEffect(() => {
     const h = (e: BeforeUnloadEvent) => {
@@ -134,13 +147,6 @@ export function App() {
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, []);
-  useEffect(() => {
-    if (!editor.status) return;
-    setToast(editor.status);
-    editor.status = "";
-    const t = setTimeout(() => setToast(""), 3000);
-    return () => clearTimeout(t);
-  }, [editor.version]);
 
   // autosave
   useEffect(() => {
@@ -321,7 +327,7 @@ export function App() {
       {exporting && <ExportDialog onClose={() => setExporting(false)} />}
       {newPaint && <NewPaintDialog onClose={() => setNewPaint(false)} />}
       <ExportDialogsHost />
-      {toast && <div className="toast">{toast}</div>}
+      <Toast />
       <DialogHost />
     </div>
   );

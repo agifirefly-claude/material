@@ -70,8 +70,9 @@ export class Executor {
   private blankTarget: Target | null = null;
   /** the order of the lanes' operations on shared targets */
   readonly hazards = new Hazards();
-  /** tiles drawn between two waits for the GPU: grows while the GPU keeps up, shrinks when it does not */
-  private group = 1;
+  /** tiles drawn between two waits for the GPU, by lane: grows while the GPU keeps up, shrinks when it does not
+   *  (tiny thumbnails must not make an export queue a whole 2048² map at once) */
+  private group: Record<Lane, number> = { fg: 1, view: 1, bg: 1 };
 
   constructor(readonly canvas: OffscreenCanvas | HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2", { premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false }) as WebGL2RenderingContext | null;
@@ -163,8 +164,8 @@ export class Executor {
       endQuery();
       const waited = await this.settle(ctl);
       // keep each group of tiles around 10 ms of GPU work
-      if (waited < 4) this.group = Math.min(64, this.group * 2);
-      else if (waited > 16) this.group = Math.max(1, this.group >> 1);
+      if (waited < 4) this.group[lane] = Math.min(64, this.group[lane] * 2);
+      else if (waited > 16) this.group[lane] = Math.max(1, this.group[lane] >> 1);
       sinceWait = 0;
       const now = performance.now();
       if (now - lastProgress > 100) {
@@ -231,7 +232,7 @@ export class Executor {
             drawTile(gl, tile.w === target.size && tile.h === (target.height ?? target.size) ? null : tile);
             stats.tiles++;
             done++;
-            if (++sinceWait >= this.group) {
+            if (++sinceWait >= this.group[lane]) {
               gl.flush();
               await wait();
               // the other lane may have drawn meanwhile: bind everything again
@@ -265,7 +266,9 @@ export class Executor {
     return { outputs, errors, stats };
   }
 
-  /** waits, without blocking, until the GPU has done what was sent; returns how long that took */
+  /** waits, without blocking, until the GPU has done what was sent; returns how long that took. (Sending the next
+   *  group before waiting for this one, to keep the GPU fed, was tried: on SwiftShader a flush behind a long draw
+   *  blocks the worker until it ends, so cancelling and timeouts stopped working.) */
   private async settle(ctl: BatchControl): Promise<number> {
     const gl = this.gl;
     const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
@@ -280,9 +283,11 @@ export class Executor {
         if (gl.isContextLost()) throw new BatchFailure("lost", "the WebGL context was lost");
         if (performance.now() - t0 > ctl.budgetMs)
           throw new BatchFailure("timeout", `the GPU did not finish a part of this render in ${ctl.budgetMs < 2000 ? ctl.budgetMs + " ms" : Math.round(ctl.budgetMs / 1000) + " s"}: a node's shader is probably too heavy for this size`);
-        // polling without pause would take a CPU core from the GPU driver (software ones run on the CPU): back off
+        // polling without pause would take a CPU core from the GPU driver (software ones run on the CPU): back off,
+        // to at most 4 ms: an export waits a few hundred times, and each wait ends on average half a pause late
+        // (16 ms cost an export of 2048² maps about 10%)
         if (++polls < 4) await yieldTask();
-        else await new Promise((r) => setTimeout(r, Math.min(16, polls - 3)));
+        else await new Promise((r) => setTimeout(r, Math.min(4, polls - 3)));
       }
     } finally {
       if (sync) gl.deleteSync(sync);
