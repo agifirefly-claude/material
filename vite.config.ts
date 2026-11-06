@@ -8,5 +8,8 @@ export default defineConfig({
   plugins: [react()],
   test: { include: ["tests/unit/**/*.test.ts"], exclude: [".claude/**", "node_modules/**"] },
   server: { port: 5173, host: "127.0.0.1" },
-  build: { chunkSizeWarningLimit: 2000, rollupOptions: { input: { main: resolve(import.meta.dirname, "index.html") } } },
+  // every page's dependencies found up front: otherwise one found later (after npm ci the cache is empty) makes
+  // Vite re-optimize and reload the page, which kills a running harness, e2e or command line evaluation
+  optimizeDeps: { entries: ["index.html", "cli.html", "tests/harness.html"] },
+  build: { chunkSizeWarningLimit: 2000, rollupOptions: { input: { main: resolve(import.meta.dirname, "index.html"), cli: resolve(import.meta.dirname, "cli.html") } } },
 });

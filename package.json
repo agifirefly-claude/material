@@ -15,7 +15,10 @@
     "electron:dev": "npm run build && electron electron/main.cjs",
     "electron:build": "npm run build && node electron/build-mac.mjs",
     "electron:smoke": "node electron/smoke.mjs",
-    "compare:reference": "node scripts/compare-reference.mjs"
+    "compare:reference": "node scripts/compare-reference.mjs",
+    "cli": "node bin/material-pro.mjs",
+    "test:cli": "node tests/cli.test.mjs",
+    "test:engines": "node tests/engines/run.mjs"
   },
   "repository": {
     "type": "git",
@@ -43,10 +46,14 @@
     "electron": "^45.2.3",
     "electron-builder": "^26.18.0",
     "gltf-validator": "^2.0.0-dev.3.10",
+    "playwright": "^1.63.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.6",
     "vitest": "^5.1.0"
   },
   "private": true,
-  "type": "module"
+  "type": "module",
+  "bin": {
+    "material-pro": "bin/material-pro.mjs"
+  }
 }

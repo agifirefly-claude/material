@@ -1,16 +1,39 @@
 // Browser checks of things the harness does not cover: the AgX tone mapper against Godot's formulas, and Auto Export
 // writing through the File System Access API (with the picker and the file replaced by an in-page fake).
-import { createRequire } from "node:module";
 import { createServer } from "vite";
 import validator from "gltf-validator";
-const { chromium } = createRequire(import.meta.url)("playwright");
-const port = +(process.env.E2E_PORT ?? 5198);
-const URL = "http://127.0.0.1:" + port;
-const server = await createServer({ server: { port, host: "127.0.0.1" }, logLevel: "error" });
+import fs from "node:fs";
+import { launchChromium } from "../scripts/playwright.mjs";
+const server = await createServer({ server: { port: +(process.env.E2E_PORT ?? 5198), host: "127.0.0.1" }, logLevel: "error" });
 await server.listen();
-const b = await chromium.launch();
+// the port Vite really took: when the asked one is busy (another checkout's run) it moves to the next one
+const port = server.httpServer.address().port;
+const URL = "http://127.0.0.1:" + port;
+const b = await launchChromium();
 let failed = false;
-const fail = (m) => { console.log("FAIL " + m); failed = true; };
+// with ARTIFACTS_DIR set (CI), a failure also takes a screenshot of the pages that are open
+const ARTIFACTS = process.env.ARTIFACTS_DIR;
+const open = new Set();
+const shots = [];
+const newPage = b.newPage.bind(b);
+b.newPage = async (o) => {
+  const p = await newPage(o);
+  const close = p.close.bind(p);
+  open.add(p);
+  p.close = async () => {
+    await Promise.all(shots);
+    open.delete(p);
+    return close();
+  };
+  return p;
+};
+const fail = (m) => {
+  console.log("FAIL " + m);
+  failed = true;
+  if (!ARTIFACTS) return;
+  fs.mkdirSync(ARTIFACTS, { recursive: true });
+  for (const p of open) shots.push(p.screenshot({ path: `${ARTIFACTS}/e2e-failure-${shots.length + 1}.png` }).catch(() => {}));
+};
 
 console.log("== AgX");
 await (async () => {
