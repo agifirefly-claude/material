@@ -1,0 +1,90 @@
+# Checks every push and pull request: types, unit tests, translations, the build, the WebGL harness over every node
+# and example, the browser end-to-end checks and the command line. Importing exports into real engines (Godot,
+# Blender, Unity, Unreal, Cocos) is done locally by design, see docs/本地验证.md.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        # GitHub runs an explicit bash with -eo pipefail, so a failing test fails its step through tee
+        shell: bash
+    env:
+      LOGS: ${{ github.workspace }}/ci-logs
+      ARTIFACTS_DIR: ${{ github.workspace }}/ci-logs/screenshots
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Prepare logs
+        run: mkdir -p "$LOGS"
+
+      - name: Type check
+        run: npm run typecheck 2>&1 | tee "$LOGS/typecheck.log"
+
+      - name: Unit tests
+        run: npm test 2>&1 | tee "$LOGS/unit.log"
+
+      - name: Translations
+        run: npm run check:i18n 2>&1 | tee "$LOGS/i18n.log"
+
+      - name: Build
+        run: npm run build 2>&1 | tee "$LOGS/build.log"
+
+      - name: WebGL harness (every node and example)
+        run: npm run test:gl 2>&1 | tee "$LOGS/harness.log"
+
+      - name: Generators tile
+        run: npm run test:tiling 2>&1 | tee "$LOGS/tiling.log"
+
+      - name: End-to-end checks
+        run: npm run test:e2e 2>&1 | tee "$LOGS/e2e.log"
+
+      - name: Command line
+        run: npm run test:cli 2>&1 | tee "$LOGS/cli.log"
+
+      - name: Worker rendering
+        run: npm run test:worker 2>&1 | tee "$LOGS/worker.log"
+
+      - name: Desktop app self test
+        run: |
+          # Chromium's setuid sandbox helper must be root-owned with mode 4755 (the runners restrict user namespaces)
+          node node_modules/electron/install.js
+          sudo chown root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+          npm run electron:smoke 2>&1 | tee "$LOGS/electron.log"
+
+      - name: UI regression
+        run: npm run test:ui 2>&1 | tee "$LOGS/ui.log"
+
+      - name: Upload logs and screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ci-logs/
+          retention-days: 14
+          if-no-files-found: ignore

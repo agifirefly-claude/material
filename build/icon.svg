@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Material Pro app icon: three linked nodes feeding a shaded sphere. Original artwork for this project. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2b3a67"/>
+      <stop offset="1" stop-color="#121826"/>
+    </linearGradient>
+    <radialGradient id="ball" cx="0.36" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#ffe3a3"/>
+      <stop offset="0.35" stop-color="#f29a4a"/>
+      <stop offset="0.8" stop-color="#9a3b2b"/>
+      <stop offset="1" stop-color="#4a1d1d"/>
+    </radialGradient>
+    <pattern id="tiles" width="64" height="64" patternUnits="userSpaceOnUse">
+      <rect width="64" height="64" fill="none"/>
+      <path d="M0 0H64M0 32H64M0 0V32M32 32V64" stroke="#000" stroke-opacity="0.18" stroke-width="5"/>
+    </pattern>
+    <clipPath id="ballClip"><circle cx="640" cy="600" r="250"/></clipPath>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#bg)"/>
+  <g fill="none" stroke="#7fb2ff" stroke-width="22" stroke-linecap="round">
+    <path d="M282 300 C 400 300, 400 520, 470 560"/>
+    <path d="M282 720 C 380 720, 400 650, 470 630"/>
+  </g>
+  <g>
+    <rect x="160" y="236" width="150" height="128" rx="28" fill="#e9eefc"/>
+    <rect x="160" y="236" width="150" height="40" rx="20" fill="#7fb2ff"/>
+    <rect x="160" y="656" width="150" height="128" rx="28" fill="#e9eefc"/>
+    <rect x="160" y="656" width="150" height="40" rx="20" fill="#9be3b0"/>
+  </g>
+  <circle cx="640" cy="600" r="250" fill="url(#ball)"/>
+  <rect x="390" y="350" width="500" height="500" fill="url(#tiles)" clip-path="url(#ballClip)" opacity="0.9"/>
+  <ellipse cx="560" cy="500" rx="70" ry="44" fill="#fff" fill-opacity="0.45" transform="rotate(-30 560 500)"/>
+</svg>

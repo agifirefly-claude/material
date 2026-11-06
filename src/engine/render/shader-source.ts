@@ -2,9 +2,10 @@
  * Material Maker builds a Vulkan compute shader from the same pieces (engine/nodes/buffer_compute.tres); this is the
  * WebGL2 equivalent: one fragment per texel, uv = pixel centre / size. */
 import { registry } from "../registry";
-import { ShaderCode, type ShaderUniform } from "../shader-code";
+import { ShaderCode, ShaderUniform, type TextureRef } from "../shader-code";
 import { removeConstantDeclarations } from "../util";
 import { fixGlsl } from "./glsl-fix";
+import { meshMapHooks } from "../gen/misc";
 
 export interface BuiltShader {
   source: string;
@@ -43,21 +44,39 @@ export function withPreview(src: ShaderCode, previewSize = 64): ShaderCode {
 }
 
 export function buildFragmentShader(sc: ShaderCode, output = sc.outputValues.rgba ?? "vec4(0.0)"): BuiltShader {
-  const all = sc.defs + sc.code + output;
+  // a view (the 2D preview, TAA) can say where uv comes from and what is done with the colour
+  const hooks = sc as ShaderCode & { mmMainUv?: string; mmOutputWrap?: string };
+  const all = sc.defs + sc.code + output + (hooks.mmMainUv ?? "") + (hooks.mmOutputWrap ?? "");
   const globals = sc.getGlobalsString(all);
   const used = globals + all;
   const uniforms = sc.uniforms.filter((u) => used.includes(u.name));
+  // the model's bounding box and inverse UV map, which Material Maker declares in its preview shaders (3D brush nodes)
+  const aabb = meshMapHooks.aabb?.() ?? { position: [0, 0, 0], size: [1, 1, 1] };
+  for (const [name, type, value] of [
+    ["mesh_aabb_position", "vec3", aabb.position],
+    ["mesh_aabb_size", "vec3", aabb.size],
+    ["mesh_inv_uv_tex", "sampler2D", "position"],
+    ["mesh_normal_tex", "sampler2D", "normal"],
+    ["mesh_tangent_tex", "sampler2D", "tangent"],
+  ] as const) {
+    if (!used.includes(name) || uniforms.some((u) => u.name === name)) continue;
+    // a sampler reads the current mesh's baked map (resolved by the renderer through meshMapHooks)
+    if (type === "sampler2D") uniforms.push(new ShaderUniform(name, type, { kind: "texture", key: "meshmap:" + value, meshMap: value } as TextureRef));
+    else uniforms.push(new ShaderUniform(name, type, [...(value as number[])]));
+  }
   let body = "";
   body += "const float seed_variation = 0.0;\n";
+  // functions written without the variation parameters still find them (main's own copies take precedence there)
+  body += "float _seed_variation_ = 0.0;\nvec4 _controlled_variation_ = vec4(0.0);\n";
   body += globals + "\n";
   body += sc.defs + "\n";
   body += "out vec4 mm_frag;\n";
   body += "void main() {\n";
   body += "\tfloat _seed_variation_ = seed_variation;\n";
   body += "\tvec4 _controlled_variation_ = vec4(0.0);\n";
-  body += "\tvec2 uv = gl_FragCoord.xy / mm_size;\n";
+  body += `\tvec2 uv = ${hooks.mmMainUv ?? "gl_FragCoord.xy / mm_size"};\n`;
   body += sc.code + "\n";
-  body += `\tmm_frag = ${output};\n`;
+  body += `\tmm_frag = ${hooks.mmOutputWrap ? hooks.mmOutputWrap.replaceAll("$out", output) : output};\n`;
   body += "}\n";
   body = removeConstantDeclarations(body);
   let source = HEADER;

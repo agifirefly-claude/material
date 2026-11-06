@@ -21,6 +21,40 @@ export class ShaderUniform {
     public size = 0,
   ) {}
 
+  /** Port of ShaderUniform.to_str: how Material Maker writes uniforms in exported shaders */
+  toStr(keyword = "uniform", initializeVectors = false): string {
+    const f9 = (x: number) => (Number.isFinite(x) ? x.toFixed(9) : "0.0");
+    let assign = "";
+    const v = this.value;
+    const arr = Array.isArray(v) ? (v as number[]) : null;
+    switch (this.type) {
+      case "int":
+        if (typeof v === "number" && this.size === 0) assign = ` = ${Math.trunc(v)}`;
+        else if (arr && initializeVectors) assign = ` = int[]( ${arr.map((x) => Math.trunc(x)).join(", ")} )`;
+        break;
+      case "float":
+        if (typeof v === "number" && this.size === 0) assign = ` = ${f9(v)}`;
+        else if (arr && initializeVectors) assign = ` = float[]( ${arr.map(f9).join(", ")} )`;
+        break;
+      case "vec2":
+        if (arr && initializeVectors) {
+          const parts = [];
+          for (let i = 0; i < arr.length; i += 2) parts.push(`vec2(${f9(arr[i])}, ${f9(arr[i + 1])})`);
+          assign = ` = vec2[]( ${parts.join(", ")} )`;
+        }
+        break;
+      case "vec4":
+        if (arr && this.size === 0) assign = ` = vec4(${arr.slice(0, 4).map(f9).join(", ")})`;
+        else if (arr && initializeVectors) {
+          const parts = [];
+          for (let i = 0; i < arr.length; i += 4) parts.push(`vec4(${arr.slice(i, i + 4).map(f9).join(", ")})`);
+          assign = ` = vec4[]( ${parts.join(", ")} )`;
+        }
+        break;
+    }
+    return `${keyword} ${this.type} ${this.name}${this.size > 0 ? `[${this.size}]` : ""}${assign};\n`;
+  }
+
   declaration(): string {
     return `uniform ${this.type === "sampler2D" ? "highp sampler2D" : this.type} ${this.name}${this.size > 0 ? `[${this.size}]` : ""};\n`;
   }
@@ -77,6 +111,10 @@ export class ShaderCode {
 
   addUniforms(list: ShaderUniform[]): void {
     for (const u of list) this.addUniform(u.name, u.type, u.value, u.size);
+  }
+
+  uniformsAsStrings(keyword = "uniform", initializeVectors = false): string {
+    return this.uniforms.map((u) => u.toStr(keyword, initializeVectors)).join("");
   }
 }
 

@@ -8,7 +8,7 @@ const FUNCS: Record<string, (...a: number[]) => number> = {
   clamp: (x, a, b) => Math.min(Math.max(x, a), b), mix: (a, b, t) => a + (b - a) * t, lerp: (a, b, t) => a + (b - a) * t,
   float: (x) => x, int: (x) => Math.trunc(x),
 };
-const CONSTS: Record<string, number> = { PI: Math.PI, TAU: Math.PI * 2, E: Math.E };
+const CONSTS: Record<string, number> = { PI: Math.PI, TAU: Math.PI * 2, E: Math.E, true: 1, false: 0 };
 
 export function evaluateExpression(src: string, vars: Record<string, number> = {}): number | undefined {
   let i = 0;
@@ -33,6 +33,16 @@ export function evaluateExpression(src: string, vars: Record<string, number> = {
     if (c === "-") {
       i++;
       return -power();
+    }
+    if (c === '"') {
+      // a string compares by its text's hash, enough for == and !=
+      const e = s.indexOf('"', i + 1);
+      if (e === -1) fail();
+      const str = s.slice(i + 1, e);
+      i = e + 1;
+      let h = 7;
+      for (const ch of str) h = (h * 31 + ch.charCodeAt(0)) | 0;
+      return h;
     }
     if (c === "+") {
       i++;
@@ -105,8 +115,50 @@ export function evaluateExpression(src: string, vars: Record<string, number> = {
       } else return v;
     }
   };
+  const comparison = (): number => {
+    let v = expr();
+    for (;;) {
+      ws();
+      const op = /^(==|!=|<=|>=|<|>)/.exec(s.slice(i))?.[0];
+      if (!op) return v;
+      i += op.length;
+      const r = expr();
+      v = Number(op === "==" ? v === r : op === "!=" ? v !== r : op === "<=" ? v <= r : op === ">=" ? v >= r : op === "<" ? v < r : v > r);
+    }
+  };
+  const word = (w: string) => {
+    ws();
+    if (s.startsWith(w, i) && !/\w/.test(s[i + w.length] ?? "")) {
+      i += w.length;
+      return true;
+    }
+    return false;
+  };
+  const not = (): number => {
+    ws();
+    if (word("not") || (s[i] === "!" && s[i + 1] !== "=" && ++i)) return Number(!not());
+    return comparison();
+  };
+  const and = (): number => {
+    let v = not();
+    for (;;) {
+      ws();
+      if (word("and") || (s.startsWith("&&", i) && (i += 2))) v = Number(!!v && !!not());
+      else return v;
+    }
+  };
+  const or = (): number => {
+    let v = and();
+    for (;;) {
+      ws();
+      if (word("or") || (s.startsWith("||", i) && (i += 2))) {
+        const r = and();
+        v = Number(!!v || !!r);
+      } else return v;
+    }
+  };
   try {
-    const v = expr();
+    const v = or();
     ws();
     if (i !== s.length) return undefined;
     return Number.isFinite(v) ? v : undefined;
