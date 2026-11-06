@@ -6,9 +6,10 @@ import { ColorEdit } from "./ColorEdit";
 import { GradientEdit } from "./GradientEdit";
 import { CurveEdit, LatticeEdit, PixelsEdit, PolygonEdit, SplinesEdit } from "./ShapeEdits";
 import { editor } from "../store";
+import { t } from "../i18n";
 
 /** "2:Label" places a parameter next to input 2 in Material Maker; here only the label part is shown */
-export const paramLabel = (p: ParameterDef) => (p.label ?? p.name).replace(/^\d+:/, "") || p.name;
+export const paramLabel = (p: ParameterDef) => t((p.label ?? p.name).replace(/^\d+:/, "") || p.name);
 
 const valueAs = <T,>(v: ParamValue, cls: { deserialize(v: unknown): T }, def: unknown): T => (v && typeof v === "object" && !isColor(v) && (v as object).constructor === (cls as unknown) ? (v as T) : cls.deserialize(v ?? def));
 
@@ -49,7 +50,7 @@ export function ParamControl({ gen, def, compact }: { gen: Gen; def: ParameterDe
         <select className="nodrag" value={Number(value ?? 0)} onChange={(e) => set(+e.target.value)} style={{ maxWidth: compact ? 140 : undefined }}>
           {(def.values ?? []).map((v, i) => (
             <option key={i} value={i}>
-              {v.name}
+              {t(v.name)}
             </option>
           ))}
         </select>

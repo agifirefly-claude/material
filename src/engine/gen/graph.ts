@@ -366,8 +366,87 @@ export class GenGraph extends Gen implements GenParent {
     return ng;
   }
 
+  /** the reverse of createSubgraph: moves a subgraph's nodes into this graph and reconnects through its ports */
+  expandSubgraph(sub: GenGraph): Gen[] {
+    if (sub.parent !== this) return [];
+    const inner = sub.children.filter((c) => c.name !== "gen_inputs" && c.name !== "gen_outputs");
+    const names: Record<string, string> = {};
+    const dx = sub.position.x - inner.reduce((a, c) => a + c.position.x, 0) / Math.max(1, inner.length);
+    const dy = sub.position.y - inner.reduce((a, c) => a + c.position.y, 0) / Math.max(1, inner.length);
+    this.children = this.children.filter((c) => c !== sub);
+    for (const c of inner) {
+      const old = c.name;
+      if (c instanceof GenRemote && c.name === "gen_parameters") c.name = "remote";
+      c.name = this.uniqueName(c.name);
+      names[old] = c.name;
+      c.position = { x: c.position.x + dx, y: c.position.y + dy };
+      c.parent = this;
+      this.children.push(c);
+    }
+    const rename = (n: string) => names[n] ?? n;
+    for (const r of inner)
+      if (r instanceof GenRemote)
+        for (const w of r.widgets) {
+          for (const l of w.linked_widgets ?? []) l.node = rename(l.node);
+          for (const cfg of Object.values(w.configurations ?? {}) as Dict[][]) for (const l of cfg) l.node = rename(l.node);
+        }
+    const outer = this.connections.filter((c) => c.from !== sub.name && c.to !== sub.name);
+    const into = this.connections.filter((c) => c.to === sub.name);
+    const outOf = this.connections.filter((c) => c.from === sub.name);
+    const conns: Connection[] = [...outer];
+    for (const c of sub.connections) {
+      if (c.from === "gen_inputs" && c.to === "gen_outputs") {
+        for (const i of into.filter((x) => x.to_port === c.from_port))
+          for (const o of outOf.filter((x) => x.from_port === c.to_port)) conns.push({ from: i.from, from_port: i.from_port, to: o.to, to_port: o.to_port });
+      } else if (c.from === "gen_inputs") {
+        for (const i of into.filter((x) => x.to_port === c.from_port)) conns.push({ from: i.from, from_port: i.from_port, to: rename(c.to), to_port: c.to_port });
+      } else if (c.to === "gen_outputs") {
+        for (const o of outOf.filter((x) => x.from_port === c.to_port)) conns.push({ from: rename(c.from), from_port: c.from_port, to: o.to, to_port: o.to_port });
+      } else conns.push({ ...c, from: rename(c.from), to: rename(c.to) });
+    }
+    sub.parent = null;
+    // an input feeds a port once
+    const seen = new Set<string>();
+    this.connections = conns.filter((c) => {
+      const k = c.to + ":" + c.to_port;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    this.fixRemotes();
+    this.notifyChanged();
+    return inner;
+  }
+
+  /** subgraphs elsewhere below this graph with the same label (graph_edit.get_propagation_targets) */
+  propagationTargets(source: GenGraph): GenGraph[] {
+    const rv: GenGraph[] = [];
+    for (const c of this.children) {
+      if (c instanceof GenGraph && c !== source) {
+        if (c.getTypeName() === source.getTypeName()) rv.push(c);
+        else rv.push(...c.propagationTargets(source));
+      }
+    }
+    return rv;
+  }
+
+  /** apply_diff_from: makes this graph's content the source's, keeping the seeds of the nodes both have */
+  applyDiffFrom(source: GenGraph): void {
+    const seeds = new Map(this.children.map((c) => [c.name, c.seedValue]));
+    const data = source.serialize();
+    this.shortdesc = source.shortdesc;
+    this.longdesc = source.longdesc;
+    for (const c of this.children) c.parent = null;
+    this.children = [];
+    this.connections = [];
+    this.addToGraph(data.nodes ?? [], data.connections ?? []);
+    for (const c of this.children) if (seeds.has(c.name) && !c.seedLocked) c.seedValue = seeds.get(c.name)!;
+    this.notifyChanged();
+  }
+
   override _serialize(data: Dict): Dict {
     data.label = this.label;
+    if (!this.transmitsSeed) data.transmits_seed = false;
     data.shortdesc = this.shortdesc;
     data.longdesc = this.longdesc;
     data.nodes = this.children.map((c) => c.serialize());
@@ -378,6 +457,7 @@ export class GenGraph extends Gen implements GenParent {
 
   override _deserialize(data: Dict): void {
     if (data.label !== undefined) this.label = data.label;
+    if (data.transmits_seed === false) this.transmitsSeed = false;
     if (data.shortdesc !== undefined) this.shortdesc = data.shortdesc;
     if (data.longdesc !== undefined) this.longdesc = data.longdesc;
     if (data.scroll_offset) this.scrollOffset = { x: data.scroll_offset.x, y: data.scroll_offset.y };
@@ -817,6 +897,28 @@ export class GenComment extends Gen {
     if (data.title !== undefined) this.title = data.title;
     if (data.size) this.size = { x: data.size.x, y: data.size.y };
     if (data.color) this.color = data.color;
+  }
+}
+
+/** a line of text in the graph (gen_comment_line.gd) */
+export class GenCommentLine extends Gen {
+  text = "Enter something..";
+  override getType() {
+    return "comment_line";
+  }
+  override getTypeName() {
+    return "Comment Line";
+  }
+  override getParameterDefs(): ParameterDef[] {
+    return [{ name: "label", type: "enum", values: ["small", "large", "huge"].map((v) => ({ name: v, value: v })), default: 0 }];
+  }
+  override _serialize(data: Dict) {
+    data.type = "comment_line";
+    data.text = this.text;
+    return data;
+  }
+  override _deserialize(data: Dict) {
+    if (data.text !== undefined) this.text = data.text;
   }
 }
 

@@ -32,6 +32,8 @@ export const registry = {
   aliases: {} as Record<string, string>,
   /** export templates by file name (glsl_defs.tmpl, godot.tres.tmpl, ...) */
   templates: {} as Record<string, string>,
+  /** Material Maker's global parameters (mm_renderer.global_parameters): `$name` in any node is the float uniform mm_global_name */
+  globalParameters: {} as Record<string, number>,
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

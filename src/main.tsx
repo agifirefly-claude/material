@@ -1,6 +1,9 @@
 import { createRoot } from "react-dom/client";
 import "./ui/styles.css";
-import { loadRegistry } from "./engine/registry";
+import { loadRegistry, registry } from "./engine/registry";
+import { libraries } from "./ui/library/manager";
+import { initialLanguage, setLanguage } from "./ui/i18n";
+import { applyPrefs } from "./ui/prefs";
 import { Renderer } from "./engine/render/renderer";
 import { editor } from "./ui/store";
 import { App, restoreAutosave } from "./ui/App";
@@ -10,6 +13,15 @@ async function start() {
   const root = document.getElementById("root")!;
   root.innerHTML = '<div class="empty" style="padding:40px">Loading the node library…</div>';
   await loadRegistry("data/");
+  libraries.load();
+  try {
+    registry.globalParameters = JSON.parse(localStorage.getItem("material-pro:globals") ?? "{}");
+  } catch {
+    registry.globalParameters = {};
+  }
+  const params0 = new URLSearchParams(location.search);
+  await setLanguage(params0.get("lang") ?? initialLanguage());
+  applyPrefs();
   try {
     editor.renderer = new Renderer();
     editor.renderer.onAsyncUpdate = () => {

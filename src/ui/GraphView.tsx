@@ -12,19 +12,27 @@ import {
   type NodeChange,
   type Connection as RFConnection,
   type EdgeChange,
+  type FinalConnectionState,
   BackgroundVariant,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import "./graph/editor.css";
 import { editor, useEditor } from "./store";
-import { MMNode, portColor, type NodeData } from "./NodeView";
-import { GenComment, GenGraph, type Connection } from "../engine/gen/graph";
+import { MMNode, portColor, portLabel, type NodeData } from "./NodeView";
+import { GenComment, GenCommentLine, GenGraph, type Connection } from "../engine/gen/graph";
 import type { Dict, Gen } from "../engine/gen/base";
 import { GenMaterial } from "../engine/gen/misc";
-import { createGen } from "../engine/loader";
-import { searchLibrary } from "./Library";
-import type { LibraryItem } from "../engine/registry";
+import { GenShader } from "../engine/gen/shader";
+import { registry, type LibraryItem } from "../engine/registry";
+import { CommentLineNode, CommentNode, viewType } from "./graph/CommentViews";
+import { AddNodePopup } from "./graph/AddNodePopup";
+import { NodeSearch } from "./graph/NodeSearch";
+import { createConnected, createFromLibrary, type QuickConnect } from "./graph/create";
+import * as act from "./graph/actions";
+import { openDialog } from "./dialogs/bus";
+import { t, tDesc, useLang } from "./i18n";
 
-const nodeTypes = { mm: MMNode };
+const nodeTypes = { mm: MMNode, comment: CommentNode, commentLine: CommentLineNode };
 export const LIB_MIME = "application/x-material-pro-node";
 
 /* ---------- clipboard: Material Maker's format, { nodes, connections } ---------- */
@@ -56,25 +64,34 @@ export function pasteData(data: Dict, at?: { x: number; y: number }): void {
   editor.select(r.generators.map((x) => x.name));
 }
 
+/** vertical position of a port inside a node, for straightening links */
+const portY = (_g: Gen, port: number) => 26 + 4 + port * 18 + 9;
+
+type Adder = { x: number; y: number; at: { x: number; y: number }; qc: QuickConnect | null };
+
 function GraphInner() {
   useEditor();
+  useLang();
   const graph = editor.graph;
   const rf = useReactFlow();
   const wrap = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; gen: Gen } | null>(null);
-  const [adder, setAdder] = useState<{ x: number; y: number; at: { x: number; y: number } } | null>(null);
-  const openAdder = (e: { clientX: number; clientY: number }) => setAdder({ x: e.clientX, y: e.clientY, at: rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }) });
+  const [edgeMenu, setEdgeMenu] = useState<{ x: number; y: number; c: Connection } | null>(null);
+  const [adder, setAdder] = useState<Adder | null>(null);
+  const [search, setSearch] = useState(false);
+  const connecting = useRef<QuickConnect | null>(null);
+  const openAdder = (e: { clientX: number; clientY: number }, qc: QuickConnect | null = null) =>
+    setAdder({ x: e.clientX, y: e.clientY, at: rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }), qc });
 
   const derived = useMemo<Node<NodeData>[]>(
     () =>
       graph.children.map((g) => ({
         id: g.name,
-        type: "mm",
+        type: viewType(g),
         position: { x: g.position.x, y: g.position.y },
         data: { gen: g },
         selected: editor.selection.includes(g.name),
         zIndex: g instanceof GenComment ? -1 : 0,
-        dragHandle: g instanceof GenComment ? undefined : undefined,
       })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [graph, editor.version],
@@ -86,14 +103,15 @@ function GraphInner() {
     () =>
       graph.connections.map((c) => {
         const from = graph.getNode(c.from);
-        const t = from?.getOutputDefs()[c.from_port]?.type;
+        const type = from?.getOutputDefs()[c.from_port]?.type;
         return {
           id: `${c.from}:${c.from_port}>${c.to}:${c.to_port}`,
           source: c.from,
           sourceHandle: "o" + c.from_port,
           target: c.to,
           targetHandle: "i" + c.to_port,
-          style: { stroke: portColor(t) },
+          style: { stroke: portColor(type) },
+          data: { c },
         };
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -103,6 +121,7 @@ function GraphInner() {
   const onNodesChange = useCallback((changes: NodeChange<Node<NodeData>>[]) => {
     setNodes((ns) => applyNodeChanges(changes, ns));
     for (const ch of changes) {
+      if (ch.type === "dimensions" && ch.dimensions) act.nodeSizes.set(ch.id, ch.dimensions);
       if (ch.type === "position" && ch.position && !ch.dragging) {
         const g = editor.graph.getNode(ch.id);
         if (g) {
@@ -139,35 +158,36 @@ function GraphInner() {
   }, []);
 
   const onConnect = useCallback((c: RFConnection) => {
+    connecting.current = null;
     const g = editor.graph;
     const from = g.getNode(c.source),
       to = g.getNode(c.target);
     if (from && to && c.sourceHandle && c.targetHandle) {
-      if (!g.connectChildren(from, +c.sourceHandle.slice(1), to, +c.targetHandle.slice(1))) editor.setStatus("That connection would create a loop");
+      if (!g.connectChildren(from, +c.sourceHandle.slice(1), to, +c.targetHandle.slice(1))) editor.setStatus(t("That connection would create a loop"));
     }
   }, []);
 
-  const addFromLibrary = useCallback((item: Dict, at: { x: number; y: number }) => {
-    const data = structuredClone(item);
-    for (const k of ["display_name", "icon", "icon_data", "tree_item", "skip_in_menu"]) delete data[k];
-    if (data.type && !data.name) data.name = data.type;
-    data.node_position = at;
-    const g = createGen(data);
-    if (!g) return;
-    g.position = at;
-    if (!editor.graph.addGenerator(g)) {
-      editor.setStatus("This graph already has a material node");
-      return;
-    }
-    editor.select([g.name]);
-  }, []);
+  /* a link dropped on empty space opens the add popup for nodes that can take it (graph_edit.request_popup) */
+  const onConnectEnd = useCallback(
+    (e: MouseEvent | TouchEvent, state: FinalConnectionState) => {
+      if (state.isValid || state.toHandle || !state.fromNode || !state.fromHandle?.id) return;
+      const target = (e as MouseEvent).target as Element | null;
+      if (target?.closest?.(".react-flow__node")) return;
+      const gen = editor.graph.getNode(state.fromNode.id);
+      if (!gen) return;
+      const fromOutput = state.fromHandle.type === "source";
+      const port = +state.fromHandle.id.slice(1);
+      const def = (fromOutput ? gen.getOutputDefs() : gen.getInputDefs())[port];
+      const qc: QuickConnect = { node: gen.name, port, fromOutput, slotType: registry.ioTypes[def?.type]?.slot_type ?? 42 };
+      const p = "changedTouches" in e ? e.changedTouches[0] : (e as MouseEvent);
+      openAdder(p, qc);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rf],
+  );
 
-  useEffect(() => {
-    const h = (e: Event) => {
-      const item = (e as CustomEvent).detail as Dict;
-      const r = wrap.current!.getBoundingClientRect();
-      const at = rf.screenToFlowPosition({ x: r.left + r.width / 2 - 60, y: r.top + r.height / 2 - 40 });
-      // step aside from the nodes already there
+  const placeFree = useCallback(
+    (at: { x: number; y: number }) => {
       const taken = (p: { x: number; y: number }) =>
         rf.getNodes().some((n) => {
           const w = n.measured?.width ?? 180,
@@ -175,37 +195,50 @@ function GraphInner() {
           return p.x < n.position.x + w + 20 && p.x + 180 > n.position.x - 20 && p.y < n.position.y + h + 20 && p.y + 120 > n.position.y - 20;
         });
       for (let i = 0; i < 12 && taken(at); i++) at.x -= 120;
-      addFromLibrary(item, at);
+      return at;
+    },
+    [rf],
+  );
+
+  useEffect(() => {
+    const h = (e: Event) => {
+      const item = (e as CustomEvent).detail as Dict;
+      const r = wrap.current!.getBoundingClientRect();
+      createFromLibrary(item, placeFree(rf.screenToFlowPosition({ x: r.left + r.width / 2 - 60, y: r.top + r.height / 2 - 40 })));
     };
     window.addEventListener("mm-add-node", h);
     return () => window.removeEventListener("mm-add-node", h);
-  }, [rf, addFromLibrary]);
+  }, [rf, placeFree]);
 
   useEffect(() => {
     // fit the view when a different graph is shown
-    const t = setTimeout(() => rf.fitView({ padding: 0.15, duration: 0 }), 30);
-    return () => clearTimeout(t);
+    const tm = setTimeout(() => rf.fitView({ padding: 0.15, duration: 0 }), 30);
+    return () => clearTimeout(tm);
   }, [graph, rf]);
 
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement;
-      if (t.closest("input, textarea, select, [contenteditable]")) return;
+      const el = e.target as HTMLElement;
+      if (el.closest("input, textarea, select, [contenteditable]")) return;
       const mod = e.ctrlKey || e.metaKey;
-      if (mod && e.key.toLowerCase() === "z") {
+      const k = e.key.toLowerCase();
+      if (mod && k === "z") {
         e.preventDefault();
         if (e.shiftKey) editor.redo();
         else editor.undo();
-      } else if (mod && e.key.toLowerCase() === "y") {
+      } else if (mod && k === "y") {
         e.preventDefault();
         editor.redo();
-      } else if (mod && e.key.toLowerCase() === "c") copySelection();
-      else if (mod && e.key.toLowerCase() === "x") copySelection(true);
-      else if (mod && e.key.toLowerCase() === "d") {
+      } else if (mod && k === "c") copySelection();
+      else if (mod && k === "x") copySelection(true);
+      else if (mod && k === "d") {
         e.preventDefault();
-        const d = copySelection();
-        if (d) pasteData(d);
-      } else if (mod && e.key.toLowerCase() === "v") {
+        if (e.shiftKey) act.duplicateWithInputs();
+        else {
+          const d = copySelection();
+          if (d) pasteData(d);
+        }
+      } else if (mod && k === "v") {
         const fromLocal = localStorage.getItem("material-pro:clipboard");
         const paste = (text: string | null) => {
           if (!text) return;
@@ -217,9 +250,29 @@ function GraphInner() {
         };
         if (navigator.clipboard?.readText) navigator.clipboard.readText().then(paste, () => paste(fromLocal));
         else paste(fromLocal);
-      } else if (mod && e.key.toLowerCase() === "g") {
+      } else if (mod && k === "g") {
         e.preventDefault();
         groupSelection();
+      } else if (mod && k === "a") {
+        e.preventDefault();
+        if (e.shiftKey) act.selectNone();
+        else act.selectAll();
+      } else if (mod && k === "i") {
+        e.preventDefault();
+        act.selectInvert();
+      } else if (mod && k === "f") {
+        e.preventDefault();
+        setSearch(true);
+      } else if (mod && k === "m") {
+        e.preventDefault();
+        act.minimizeSelection();
+      } else if (mod && k === "e") {
+        e.preventDefault();
+        const g = editor.selected;
+        if (g) openDialog("edit-node", g);
+      } else if (e.altKey && k === "s") {
+        e.preventDefault();
+        act.swapInputs();
       } else if (e.key === "Escape" && editor.path.length) {
         editor.goTo(editor.path.length - 1);
       }
@@ -228,10 +281,16 @@ function GraphInner() {
     return () => window.removeEventListener("keydown", key);
   }, []);
 
+  useEffect(() => {
+    const h = () => setSearch(true);
+    window.addEventListener("mm-find-node", h);
+    return () => window.removeEventListener("mm-find-node", h);
+  }, []);
+
   return (
     <div
       ref={wrap}
-      style={{ flex: 1, minHeight: 0 }}
+      style={{ flex: 1, minHeight: 0, position: "relative" }}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes(LIB_MIME)) {
           e.preventDefault();
@@ -242,7 +301,7 @@ function GraphInner() {
         const d = e.dataTransfer.getData(LIB_MIME);
         if (!d) return;
         e.preventDefault();
-        addFromLibrary(JSON.parse(d), rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+        createFromLibrary(JSON.parse(d), rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
       }}
     >
       <ReactFlow
@@ -253,18 +312,25 @@ function GraphInner() {
         onEdgesChange={onEdgesChange}
         onSelectionChange={onSelectionChange}
         onConnect={onConnect}
+        onConnectEnd={onConnectEnd}
         isValidConnection={isValidConnection}
         onNodeDoubleClick={(_, n) => {
           const g = editor.graph.getNode(n.id);
-          if (g instanceof GenGraph) editor.enter(n.id);
+          if (g instanceof GenGraph && !(g instanceof GenMaterial)) editor.enter(n.id);
         }}
         onNodeContextMenu={(e, n) => {
           e.preventDefault();
           const g = editor.graph.getNode(n.id);
           if (g) setMenu({ x: e.clientX, y: e.clientY, gen: g });
         }}
+        onEdgeContextMenu={(e, edge) => {
+          e.preventDefault();
+          setEdgeMenu({ x: e.clientX, y: e.clientY, c: (edge.data as { c: Connection }).c });
+        }}
+        onEdgeDoubleClick={(e, edge) => act.insertRerouteOnLink((edge.data as { c: Connection }).c, rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }))}
         onPaneClick={(e) => {
           setMenu(null);
+          setEdgeMenu(null);
           if (e.detail === 2) openAdder(e);
         }}
         onPaneContextMenu={(e) => {
@@ -284,54 +350,20 @@ function GraphInner() {
         <MiniMap pannable zoomable nodeColor="#444" maskColor="#0008" />
       </ReactFlow>
       {menu && <NodeMenu {...menu} onClose={() => setMenu(null)} />}
+      {edgeMenu && <EdgeMenu {...edgeMenu} at={rf.screenToFlowPosition({ x: edgeMenu.x, y: edgeMenu.y })} onClose={() => setEdgeMenu(null)} />}
       {adder && (
         <AddNodePopup
           x={adder.x}
           y={adder.y}
-          onPick={(item) => {
-            addFromLibrary(item, adder.at);
+          qc={adder.qc}
+          onPick={(item: LibraryItem) => {
+            createConnected(item, adder.at, adder.qc);
             setAdder(null);
           }}
           onClose={() => setAdder(null)}
         />
       )}
-    </div>
-  );
-}
-
-/** the quick add box: type to search the library, Enter adds the first match */
-function AddNodePopup({ x, y, onPick, onClose }: { x: number; y: number; onPick: (i: LibraryItem) => void; onClose: () => void }) {
-  const [q, setQ] = useState("");
-  const [sel, setSel] = useState(0);
-  const results = useMemo(() => searchLibrary(q).slice(0, 30), [q]);
-  return (
-    <div className="menu-list" style={{ position: "fixed", left: Math.min(x, window.innerWidth - 300), top: Math.min(y, window.innerHeight - 380), width: 290 }}>
-      <input
-        autoFocus
-        type="search"
-        placeholder="Add a node…"
-        value={q}
-        style={{ width: "100%", marginBottom: 4 }}
-        onChange={(e) => {
-          setQ(e.target.value);
-          setSel(0);
-        }}
-        onBlur={() => setTimeout(onClose, 150)}
-        onKeyDown={(e) => {
-          e.stopPropagation();
-          if (e.key === "Escape") onClose();
-          if (e.key === "ArrowDown") setSel((s) => Math.min(results.length - 1, s + 1));
-          if (e.key === "ArrowUp") setSel((s) => Math.max(0, s - 1));
-          if (e.key === "Enter" && results[sel]) onPick(results[sel]);
-        }}
-      />
-      {results.map((it, i) => (
-        <button key={it.tree_item} onMouseDown={() => onPick(it)} style={{ background: i === sel ? "var(--bg4)" : undefined, display: "flex", gap: 6, alignItems: "center" }}>
-          {it.icon_data && <img src={"data:image/png;base64," + it.icon_data} alt="" style={{ width: 28, height: 14, objectFit: "cover" }} />}
-          {it.tree_item}
-        </button>
-      ))}
-      {q && !results.length && <div className="label">No node matches</div>}
+      {search && <NodeSearch onClose={() => setSearch(false)} onGo={(n) => setTimeout(() => rf.fitView({ nodes: [{ id: n.name }], padding: 0.6, duration: 300 }), 80)} />}
     </div>
   );
 }
@@ -346,60 +378,151 @@ export function groupSelection() {
 function NodeMenu({ x, y, gen, onClose }: { x: number; y: number; gen: Gen; onClose: () => void }) {
   const g = editor.graph;
   const outs = gen.getOutputDefs();
-  const act = (f: () => void) => () => {
+  const ins = gen.getInputDefs();
+  const run = (f: () => void) => () => {
     f();
     onClose();
   };
+  const isSub = gen instanceof GenGraph && !(gen instanceof GenMaterial);
   return (
-    <div className="menu-list" style={{ position: "fixed", left: x, top: y }} onMouseLeave={onClose}>
-      {gen instanceof GenGraph && <button onClick={act(() => editor.enter(gen.name))}>Open subgraph</button>}
+    <div className="menu-list" style={{ position: "fixed", left: x, top: Math.min(y, window.innerHeight - 520), maxHeight: "80vh" }} onMouseLeave={onClose}>
+      {isSub && <button onClick={run(() => editor.enter(gen.name))}>{t("Open subgraph")}</button>}
+      {(gen instanceof GenShader || isSub) && <button onClick={run(() => openDialog("edit-node", gen))}>{gen instanceof GenMaterial ? t("Edit material…") : isSub ? t("Edit graph…") : t("Edit node…")} (Ctrl+E)</button>}
+      {(gen instanceof GenShader || isSub) && gen.isTemplate() && <button onClick={run(() => (gen.toggleEditable(), gen.changed()))}>{t("Make editable (detach from the library)")}</button>}
       {outs.length > 1 &&
         outs.map((o, i) => (
-          <button key={i} onClick={act(() => ((gen.preview = i), editor.emit()))}>
-            Preview output {i}
-            {o.shortdesc ? ` — ${o.shortdesc}` : ""}
+          <button key={i} onClick={run(() => ((gen.preview = i), editor.emit()))}>
+            {t("Preview output {0}", i)}
+            {o.shortdesc ? ` — ${tDesc(o.shortdesc)}` : ""}
           </button>
         ))}
       {outs.length > 0 && (
         <button
-          onClick={act(() => {
+          onClick={run(() => {
             if (editor.allPreviews) gen.extra.hidePreview = !gen.extra.hidePreview;
             else gen.preview = gen.preview >= 0 ? -1 : 0;
             editor.emit();
           })}
         >
-          {(editor.allPreviews ? !gen.extra.hidePreview : gen.preview >= 0) ? "Hide preview" : "Show preview"}
+          {(editor.allPreviews ? !gen.extra.hidePreview : gen.preview >= 0) ? t("Hide preview") : t("Show preview")}
         </button>
       )}
-      <button onClick={act(() => ((gen.minimized = !gen.minimized), editor.emit()))}>{gen.minimized ? "Show parameters" : "Hide parameters"}</button>
-      {gen.hasRandomness() && <button onClick={act(() => gen.setSeed(Math.random()))}>New random seed</button>}
-      {gen.hasRandomness() && <button onClick={act(() => ((gen.seedLocked = !gen.seedLocked), gen.changed()))}>{gen.seedLocked ? "Unlock seed" : "Lock seed"}</button>}
+      <button onClick={run(() => ((gen.minimized = !gen.minimized), editor.emit()))}>{gen.minimized ? t("Show parameters") : t("Hide parameters")}</button>
+      {gen.hasRandomness() && <button onClick={run(() => gen.setSeed(Math.random()))}>{t("New random seed")}</button>}
+      {gen.hasRandomness() && <button onClick={run(() => ((gen.seedLocked = !gen.seedLocked), gen.changed()))}>{gen.seedLocked ? t("Unlock seed") : t("Lock seed")}</button>}
       <button
-        onClick={act(() => {
-          const n = prompt("Node name", gen.name);
-          if (n && !g.renameGenerator(gen, n)) editor.setStatus("That name is taken or not valid");
+        onClick={run(() => {
+          const n = prompt(t("Node name"), gen.name);
+          if (n && !g.renameGenerator(gen, n)) editor.setStatus(t("That name is taken or not valid"));
         })}
       >
-        Rename…
+        {t("Rename…")}
       </button>
+      {ins.length > 1 && <button onClick={run(() => (editor.select([gen.name]), act.swapInputs()))}>{t("Swap inputs")} (Alt+S)</button>}
+      {ins.map((p, i) => (
+        <button key={"r" + i} onClick={run(() => act.toggleRerouteOnInput(gen, i))}>
+          {t("Reroute input")} “{portLabel(p, i, false)}”
+        </button>
+      ))}
       <hr />
       <button
-        onClick={act(() => {
+        onClick={run(() => {
           editor.select([gen.name]);
           const d = copySelection();
           if (d) pasteData(d);
         })}
       >
-        Duplicate
+        {t("Duplicate")}
       </button>
-      <button onClick={act(() => groupSelection())}>Group selection into subgraph</button>
-      {gen.canBeDeleted() && <button onClick={act(() => g.removeGenerator(gen))}>Delete</button>}
+      <button onClick={run(() => act.duplicateWithInputs())}>{t("Duplicate with inputs")} (Ctrl+Shift+D)</button>
+      <button onClick={run(() => groupSelection())}>{t("Group selection into subgraph")}</button>
+      {isSub && <button onClick={run(() => (editor.select([gen.name]), act.expandSelectedSubgraph()))}>{t("Expand subgraph into this graph")}</button>}
+      {!(gen instanceof GenComment || gen instanceof GenCommentLine) && <button onClick={run(() => openDialog("add-to-library", gen))}>{t("Add to a library…")}</button>}
+      {gen.canBeDeleted() && <button onClick={run(() => g.removeGenerator(gen))}>{t("Delete")}</button>}
     </div>
+  );
+}
+
+function EdgeMenu({ x, y, c, at, onClose }: { x: number; y: number; c: Connection; at: { x: number; y: number }; onClose: () => void }) {
+  const run = (f: () => void) => () => {
+    f();
+    onClose();
+  };
+  return (
+    <div className="menu-list" style={{ position: "fixed", left: x, top: y }} onMouseLeave={onClose}>
+      <div className="label">
+        {c.from}.{c.from_port} → {c.to}.{c.to_port}
+      </div>
+      <button onClick={run(() => act.insertRerouteOnLink(c, at))}>{t("Insert a reroute node")}</button>
+      <button onClick={run(() => act.linkToPortals(c))}>{t("Replace by portals")}</button>
+      <button onClick={run(() => editor.graph.disconnectChildren(c.from, c.from_port, c.to, c.to_port))}>{t("Disconnect")}</button>
+    </div>
+  );
+}
+
+function Toolbar() {
+  const [open, setOpen] = useState<"" | "select" | "align">("");
+  const g = editor.graph;
+  const sub = g !== editor.root;
+  const close = (f: () => void) => () => {
+    f();
+    setOpen("");
+  };
+  return (
+    <>
+      <div className="menu">
+        <button onClick={() => setOpen(open === "select" ? "" : "select")}>{t("Select")} ▾</button>
+        {open === "select" && (
+          <div className="menu-list" onMouseLeave={() => setOpen("")}>
+            <button onClick={close(act.selectAll)}>{t("Select all")} (Ctrl+A)</button>
+            <button onClick={close(act.selectNone)}>{t("Select none")} (Ctrl+Shift+A)</button>
+            <button onClick={close(act.selectInvert)}>{t("Invert selection")} (Ctrl+I)</button>
+            <hr />
+            <button onClick={close(act.minimizeSelection)}>{t("Minimize / restore selection")} (Ctrl+M)</button>
+            <button onClick={close(() => act.addComment())}>{t("Add a comment around the selection")}</button>
+          </div>
+        )}
+      </div>
+      <div className="menu">
+        <button onClick={() => setOpen(open === "align" ? "" : "align")} disabled={editor.selection.length < 2}>
+          {t("Align")} ▾
+        </button>
+        {open === "align" && (
+          <div className="menu-list" onMouseLeave={() => setOpen("")}>
+            <button onClick={close(act.alignStart)}>{t("Align start")}</button>
+            <button onClick={close(act.alignCenter)}>{t("Align center")}</button>
+            <button onClick={close(act.alignEnd)}>{t("Align end")}</button>
+            <button onClick={close(act.alignTop)}>{t("Align top")}</button>
+            <button onClick={close(() => act.straightenConnections(portY))}>{t("Straighten connections")}</button>
+          </div>
+        )}
+      </div>
+      <button onClick={() => window.dispatchEvent(new Event("mm-find-node"))} title="Ctrl+F">
+        {t("Find")}
+      </button>
+      {sub && (
+        <label title={t("The nodes of this subgraph add the graph's seed to theirs")}>
+          <input type="checkbox" checked={g.transmitsSeed} onChange={(e) => ((g.transmitsSeed = e.target.checked), g.changed())} /> {t("transmit seed")}
+        </label>
+      )}
+      {sub && (
+        <button
+          title={t("Copy this subgraph to every subgraph with the same name")}
+          onClick={() => {
+            const n = act.propagateChanges();
+            editor.setStatus(t("Changes propagated to {0} subgraphs", n));
+          }}
+        >
+          {t("Propagate")}
+        </button>
+      )}
+    </>
   );
 }
 
 export function GraphView() {
   useEditor();
+  useLang();
   const crumbs = ["Material", ...editor.path];
   return (
     <div className="graph-wrap">
@@ -413,12 +536,11 @@ export function GraphView() {
           </span>
         ))}
         <span style={{ flex: 1 }} />
-        <label title="Show a preview on every node">
-          <input type="checkbox" checked={editor.allPreviews} onChange={(e) => ((editor.allPreviews = e.target.checked), editor.emit())} /> all previews
+        <Toolbar />
+        <label title={t("Show a preview on every node")}>
+          <input type="checkbox" checked={editor.allPreviews} onChange={(e) => ((editor.allPreviews = e.target.checked), editor.emit())} /> {t("all previews")}
         </label>
-        <span style={{ color: "var(--text3)" }}>
-          {editor.graph.children.length} nodes · {editor.graph.connections.length} links
-        </span>
+        <span style={{ color: "var(--text3)" }}>{t("{0} nodes · {1} links", editor.graph.children.length, editor.graph.connections.length)}</span>
       </div>
       <ReactFlowProvider>
         <GraphInner />

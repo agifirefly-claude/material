@@ -1,14 +1,18 @@
 import type React from "react";
-import { useMemo, useState } from "react";
-import { registry, type LibraryItem } from "../engine/registry";
+import { useMemo, useState, useSyncExternalStore } from "react";
+import type { LibraryItem } from "../engine/registry";
 import { LIB_MIME } from "./GraphView";
 import { editor, useEditor } from "./store";
 import { GenGraph } from "../engine/gen/graph";
 import { GenMaterial } from "../engine/gen/misc";
+import { libraries } from "./library/manager";
+import { openDialog } from "./dialogs/bus";
+import { t, tPath, useLang } from "./i18n";
 
-type Folder = { name: string; path: string; item?: LibraryItem; children: Folder[] };
+type Item = LibraryItem & { library: string };
+type Folder = { name: string; path: string; item?: Item; children: Folder[] };
 
-function buildTree(items: LibraryItem[]): Folder {
+function buildTree(items: Item[]): Folder {
   const root: Folder = { name: "", path: "", children: [] };
   for (const it of items) {
     if (it.skip_in_menu) continue;
@@ -28,27 +32,18 @@ function buildTree(items: LibraryItem[]): Folder {
   return root;
 }
 
-/** library items matching a query, best first: names, then node types, then paths and aliases */
+/** library items matching a query, best first (kept for callers of the first version) */
 export function searchLibrary(q: string): LibraryItem[] {
-  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  if (!words.length) return [];
-  const scored: [number, LibraryItem][] = [];
-  for (const it of registry.library) {
-    const name = (it.display_name ?? it.tree_item.split("/").pop() ?? "").toLowerCase();
-    const hay = (it.tree_item + " " + name + " " + it.type + " " + (registry.aliases[it.tree_item] ?? "")).toLowerCase();
-    if (!words.every((w) => hay.includes(w))) continue;
-    let score = 0;
-    for (const w of words) score += name === w ? 0 : name.startsWith(w) ? 1 : name.includes(w) ? 2 : it.type.includes(w) ? 3 : it.tree_item.toLowerCase().includes(w) ? 4 : 6;
-    scored.push([score * 100 + it.tree_item.split("/").length, it]);
-  }
-  return scored.sort((a, b) => a[0] - b[0]).map((x) => x[1]);
+  return q.trim() ? libraries.search(q, false, t) : [];
 }
 
 function addNode(item: LibraryItem) {
   window.dispatchEvent(new CustomEvent("mm-add-node", { detail: item }));
 }
 
-function Item({ f, depth, open, toggle }: { f: Folder; depth: number; open: Set<string>; toggle: (p: string) => void }) {
+type ItemMenu = { x: number; y: number; item: Item };
+
+function TreeItem({ f, open, toggle, onMenu }: { f: Folder; open: Set<string>; toggle: (p: string) => void; onMenu: (m: ItemMenu) => void }) {
   const isOpen = open.has(f.path);
   const hasChildren = f.children.length > 0;
   return (
@@ -63,16 +58,22 @@ function Item({ f, depth, open, toggle }: { f: Folder; depth: number; open: Set<
         }}
         onClick={() => (hasChildren ? toggle(f.path) : f.item && addNode(f.item))}
         onDoubleClick={() => f.item && hasChildren && addNode(f.item)}
-        title={f.item ? `${f.item.tree_item}\nClick or drag to add${hasChildren ? " (double click)" : ""}` : f.path}
+        onContextMenu={(e) => {
+          if (!f.item) return;
+          e.preventDefault();
+          onMenu({ x: e.clientX, y: e.clientY, item: f.item });
+        }}
+        title={f.item ? `${tPath(f.item.tree_item)}\n${t("Click or drag to add")}` : tPath(f.path)}
       >
         <span className="caret">{hasChildren ? (isOpen ? "▾" : "▸") : ""}</span>
         {f.item?.icon_data && <img src={"data:image/png;base64," + f.item.icon_data} alt="" />}
-        <span>{f.name}</span>
+        <span>{t(f.name)}</span>
+        {f.item && f.item.library !== "base" && <span className="lib-badge">{libraries.library(f.item.library)?.name}</span>}
       </div>
       {hasChildren && isOpen && (
         <div className="tree-children">
           {f.children.map((c) => (
-            <Item key={c.path} f={c} depth={depth + 1} open={open} toggle={toggle} />
+            <TreeItem key={c.path} f={c} open={open} toggle={toggle} onMenu={onMenu} />
           ))}
         </div>
       )}
@@ -80,11 +81,56 @@ function Item({ f, depth, open, toggle }: { f: Folder; depth: number; open: Set<
   );
 }
 
+function ItemContextMenu({ m, onClose }: { m: ItemMenu; onClose: () => void }) {
+  const lib = libraries.library(m.item.library);
+  const editable = lib && !lib.builtin;
+  const run = (f: () => void) => () => {
+    f();
+    onClose();
+  };
+  return (
+    <div className="menu-list" style={{ position: "fixed", left: m.x, top: m.y }} onMouseLeave={onClose}>
+      <div className="label">
+        {tPath(m.item.tree_item)} · {lib?.name}
+      </div>
+      <button onClick={run(() => addNode(m.item))}>{t("Add to the graph")}</button>
+      {editable && (
+        <button
+          onClick={run(() => {
+            const n = prompt(t("New name (a path such as Folder/Name)"), m.item.tree_item);
+            if (n && !libraries.renameItem(m.item.library, m.item.tree_item, n)) editor.setStatus(t("That name is taken"));
+          })}
+        >
+          {t("Rename…")}
+        </button>
+      )}
+      {editable && editor.selected && <button onClick={run(() => openDialog("add-to-library", { gen: editor.selected, library: m.item.library, name: m.item.tree_item, iconOnly: true }))}>{t("Update the icon from the selected node")}</button>}
+      {editable && editor.selected && <button onClick={run(() => openDialog("add-to-library", { gen: editor.selected, library: m.item.library, name: m.item.tree_item }))}>{t("Replace with the selected node")}</button>}
+      <button
+        onClick={run(() => {
+          const a = prompt(t("Other names to find this node by, separated by commas"), libraries.userAliases[m.item.tree_item] ?? "");
+          if (a !== null) libraries.setAliases(m.item.tree_item, a);
+        })}
+      >
+        {t("Aliases…")}
+      </button>
+      <button onClick={run(() => libraries.setQuick(libraries.quick.length < 8 ? libraries.quick.length : 7, m.item.tree_item))}>{t("Put in the quick bar")}</button>
+      {editable && <button onClick={run(() => confirm(t("Delete “{0}” from {1}?", m.item.tree_item, lib!.name)) && libraries.removeItem(m.item.library, m.item.tree_item))}>{t("Delete")}</button>}
+    </div>
+  );
+}
+
 export function Library() {
+  useLang();
+  useSyncExternalStore(libraries.subscribe, libraries.getVersion);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<Set<string>>(new Set());
-  const tree = useMemo(() => buildTree(registry.library), []);
-  const results = useMemo(() => (q.trim() ? searchLibrary(q) : null), [q]);
+  const [menu, setMenu] = useState<ItemMenu | null>(null);
+  const items = libraries.items();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const tree = useMemo(() => buildTree(items), [libraries.version]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const results = useMemo(() => (q.trim() ? (libraries.search(q, false, t) as Item[]) : null), [q, libraries.version]);
   const toggle = (p: string) =>
     setOpen((o) => {
       const n = new Set(o);
@@ -95,29 +141,44 @@ export function Library() {
   return (
     <>
       <h3>
-        Library <span className="grow" /> <span style={{ textTransform: "none" }}>{registry.library.length}</span>
+        {t("Library")} <span className="grow" /> <span style={{ textTransform: "none" }}>{items.length}</span>
+        <button className="tiny" title={t("Manage libraries")} onClick={() => openDialog("libraries")}>
+          ⋯
+        </button>
       </h3>
+      <div className="lib-sections">
+        {libraries.sections().map((s) => (
+          <button key={s} className={libraries.disabledSections.has(s) ? "off" : "on"} title={t("Show or hide this section")} onClick={() => libraries.toggleSection(s)}>
+            {t(s)}
+          </button>
+        ))}
+      </div>
       <div className="lib-search">
-        <input type="search" placeholder="Search nodes (e.g. noise, blur, brick)" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input type="search" placeholder={t("Search nodes (e.g. noise, blur, brick)")} value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
       <div className="scroll tree" style={{ flex: 1 }}>
         {results
           ? results.map((it) => (
               <div
-                key={it.tree_item}
+                key={it.library + it.tree_item}
                 className="tree-row"
                 draggable
                 onDragStart={(e) => e.dataTransfer.setData(LIB_MIME, JSON.stringify(it))}
                 onClick={() => addNode(it)}
-                title={it.tree_item}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setMenu({ x: e.clientX, y: e.clientY, item: it });
+                }}
+                title={tPath(it.tree_item)}
               >
                 {it.icon_data && <img src={"data:image/png;base64," + it.icon_data} alt="" />}
-                <span>{it.tree_item.split("/").slice(-2).join(" / ")}</span>
+                <span>{tPath(it.tree_item).split("/").slice(-2).join(" / ")}</span>
               </div>
             ))
-          : tree.children.map((c) => <Item key={c.path} f={c} depth={0} open={open} toggle={toggle} />)}
-        {results && !results.length && <div className="empty">No node matches</div>}
+          : tree.children.map((c) => <TreeItem key={c.path} f={c} open={open} toggle={toggle} onMenu={setMenu} />)}
+        {results && !results.length && <div className="empty">{t("No node matches")}</div>}
       </div>
+      {menu && <ItemContextMenu m={menu} onClose={() => setMenu(null)} />}
       <Hierarchy />
     </>
   );
@@ -125,6 +186,7 @@ export function Library() {
 
 function Hierarchy() {
   useEditor();
+  useLang();
   const walk = (g: GenGraph, path: string[], depth: number): React.ReactElement[] => {
     const rows: React.ReactElement[] = [];
     for (const c of g.children) {
@@ -133,7 +195,7 @@ function Hierarchy() {
       const current = p.join("/") === editor.path.join("/");
       rows.push(
         <div key={p.join("/")} className="tree-row" style={{ paddingLeft: 8 + depth * 12, color: current ? "#fff" : undefined, background: current ? "var(--bg4)" : undefined }} onClick={() => ((editor.path = p), (editor.selection = []), editor.emit())}>
-          ▸ {c.getTypeName()} <span style={{ color: "var(--text3)" }}>{c.name}</span>
+          ▸ {t(c.getTypeName())} <span style={{ color: "var(--text3)" }}>{c.name}</span>
         </div>,
       );
       rows.push(...walk(c, p, depth + 1));
@@ -143,12 +205,12 @@ function Hierarchy() {
   const rows = walk(editor.root, [], 1);
   return (
     <div className="hier scroll">
-      <h3>Hierarchy</h3>
+      <h3>{t("Hierarchy")}</h3>
       <div className="tree-row" style={{ color: editor.path.length ? undefined : "#fff" }} onClick={() => editor.goTo(0)}>
         ◆ {editor.title}
       </div>
       {rows}
-      {!rows.length && <div style={{ color: "var(--text3)", padding: "2px 12px 8px" }}>No subgraphs</div>}
+      {!rows.length && <div style={{ color: "var(--text3)", padding: "2px 12px 8px" }}>{t("No subgraphs")}</div>}
     </div>
   );
 }

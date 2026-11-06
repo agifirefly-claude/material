@@ -2,7 +2,7 @@
 import { registry } from "./registry";
 import { factory, Gen, type Dict } from "./gen/base";
 import { GenShader } from "./gen/shader";
-import { GenComment, GenGraph, GenIOs, GenPassthrough, GenPortal, GenRemote, GenReroute, GenSwitch } from "./gen/graph";
+import { GenComment, GenCommentLine, GenGraph, GenIOs, GenPassthrough, GenPortal, GenRemote, GenReroute, GenSwitch } from "./gen/graph";
 import { GenBuffer, GenImage, GenIterateBuffer, GenText } from "./gen/texture";
 import { GenSDF } from "./gen/sdf";
 import { GenAutoExport, GenDebug, GenExport, GenMaterial, GenMeshMap, GenWebcam } from "./gen/misc";
@@ -20,6 +20,7 @@ const TYPES: Record<string, Ctor> = {
   switch: GenSwitch,
   export: GenExport,
   comment: GenComment,
+  comment_line: GenCommentLine,
   webcam: GenWebcam,
   debug: GenDebug,
   reroute: GenReroute,
@@ -64,7 +65,7 @@ export function createGen(data: Dict, fix = true): Gen | null {
     else if (registry.nodes[data.type]) {
       g = createGen(registry.nodes[data.type], false);
       if (g) g.model = data.type;
-    } else if (["brush", "comment_line"].includes(data.type)) g = new GenPassthrough(data.type);
+    } else if (["brush"].includes(data.type)) g = new GenPassthrough(data.type);
     if (g) g.name = data.type;
   }
   if (!g) {
