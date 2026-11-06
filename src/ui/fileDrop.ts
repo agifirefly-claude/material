@@ -29,7 +29,7 @@ export async function dropFiles(e: React.DragEvent, at: { x: number; y: number }
     try {
       if (PROJECT.test(f.name)) {
         const data = parseProject(await f.text());
-        if (data.nodes) editor.load(data, f.name.replace(PROJECT, ""));
+        if (data.nodes) editor.open(data, f.name.replace(PROJECT, ""));
         else editor.setStatus(`${f.name} is not a Material Maker project`);
       } else if (IMAGE.test(f.name) || f.type.startsWith("image/")) {
         const url = await readDataUrl(f);

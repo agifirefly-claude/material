@@ -32,6 +32,9 @@ import * as act from "./graph/actions";
 import { openDialog } from "./dialogs/bus";
 import { t, tDesc, useLang } from "./i18n";
 import { dropFiles, hasFiles } from "./fileDrop";
+import { Preview3D } from "./Preview3D";
+import { PreviewCanvas } from "./PreviewCanvas";
+import { newProject } from "../engine/loader";
 
 const nodeTypes = { mm: MMNode, comment: CommentNode, commentLine: CommentLineNode };
 export const LIB_MIME = "application/x-material-pro-node";
@@ -531,7 +534,9 @@ export function GraphView() {
   useLang();
   const crumbs = ["Material", ...editor.path];
   return (
-    <div className="graph-wrap">
+    <div className={"graph-wrap" + (editor.background !== "none" ? " with-bg" : "")}>
+      <ProjectTabs />
+      <GraphBackground />
       <div className="crumbs">
         {crumbs.map((c, i) => (
           <span key={i} style={{ display: "contents" }}>
@@ -551,6 +556,52 @@ export function GraphView() {
       <ReactFlowProvider>
         <GraphInner />
       </ReactFlowProvider>
+    </div>
+  );
+}
+
+/** the open projects, as Material Maker's project tabs */
+function ProjectTabs() {
+  useEditor();
+  const tabs = editor.projects;
+  if (tabs.length < 2) return null;
+  return (
+    <div className="project-tabs">
+      {tabs.map((p, i) => (
+        <div key={i} className={"project-tab" + (p.current ? " on" : "")} onClick={() => editor.switchProject(i)} onAuxClick={(e) => e.button === 1 && closeTab(i)} title={p.title}>
+          <span>{p.title}</span>
+          <button
+            title={t("Close")}
+            onClick={(e) => {
+              e.stopPropagation();
+              closeTab(i);
+            }}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+function closeTab(i: number) {
+  if (editor.hasChanges(i) && !confirm(t("Discard the changes to the current project?"))) return;
+  editor.closeProject(i, () => newProject());
+}
+
+/** the 2D or 3D preview drawn behind the graph */
+function GraphBackground() {
+  useEditor();
+  const g = editor.selected;
+  if (editor.background === "none") return null;
+  const outs = g ? g.getOutputDefs() : [];
+  return (
+    <div className="graph-bg">
+      {editor.background === "3d" ? (
+        <Preview3D active />
+      ) : g && outs.length ? (
+        <PreviewCanvas gen={g} output={g.preview >= 0 ? Math.min(g.preview, outs.length - 1) : 0} size={1024} className="graph-bg-2d" />
+      ) : null}
     </div>
   );
 }

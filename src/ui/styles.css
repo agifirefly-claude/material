@@ -265,3 +265,19 @@ select { padding: 2px 4px; }
 .tones-hist canvas { position: absolute; left: 0; border-radius: 2px; }
 .tones-cursor { position: absolute; cursor: ew-resize; overflow: visible; }
 .tones-empty { position: absolute; top: 40px; width: 100%; text-align: center; color: var(--text3); font-size: 10px; }
+
+/* project tabs */
+.project-tabs { display: flex; gap: 2px; padding: 4px 6px 0; background: var(--bg); border-bottom: 1px solid var(--line); overflow-x: auto; }
+.project-tab { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border-radius: 5px 5px 0 0; background: var(--bg2); color: var(--text2); cursor: pointer; max-width: 200px; white-space: nowrap; }
+.project-tab span { overflow: hidden; text-overflow: ellipsis; }
+.project-tab.on { background: var(--bg3); color: #fff; }
+.project-tab button { border: none; background: none; padding: 0 4px; line-height: 1; color: var(--text3); }
+.project-tab button:hover { color: #fff; }
+
+/* preview behind the graph */
+.graph-bg { position: absolute; inset: 0; z-index: 0; pointer-events: none; display: flex; opacity: .55; }
+.graph-bg .preview-pane { flex: 1; border: none; }
+.graph-bg .preview-pane .tools { display: none; }
+.graph-bg-2d { width: 100%; height: 100%; object-fit: cover; }
+.graph-wrap.with-bg > *:not(.graph-bg) { position: relative; z-index: 1; }
+.graph-wrap.with-bg .react-flow { --xy-background-color: transparent; background: transparent; }

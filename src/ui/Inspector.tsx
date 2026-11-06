@@ -55,7 +55,13 @@ export function Inspector() {
   useLang();
   const g = editor.selected;
   const [tab, setTab] = useState<"params" | "info" | "code">("params");
-  if (!g) return <GraphInfo graph={editor.graph} />;
+  if (!g)
+    return (
+      <div className="scroll" style={{ flex: 1 }}>
+        <GraphParameters graph={editor.graph} />
+        <GraphInfo graph={editor.graph} />
+      </div>
+    );
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
       <div className="tabs">
@@ -579,5 +585,22 @@ function IOsEditor({ ios }: { ios: GenIOs }) {
       ))}
       <button onClick={() => (ios.ports.push({ name: "port" + ios.ports.length, type: "rgba" }), changed())}>+ Port</button>
     </>
+  );
+}
+
+/** Material Maker's parameters panel: the controls of the open graph's parameters node */
+function GraphParameters({ graph }: { graph: GenGraph }) {
+  const defs = graph.getParameterDefs();
+  if (!defs.length) return null;
+  return (
+    <div className="insp" style={{ paddingBottom: 0 }}>
+      <div className="sect">{t("Parameters")}</div>
+      {defs.map((d) => (
+        <div key={d.name} className="row" style={["curve", "polygon", "polyline", "lattice", "splines", "pixels", "gradient"].includes(d.type) ? { gridTemplateColumns: "1fr" } : undefined}>
+          <label title={[d.name, d.shortdesc, d.longdesc].filter(Boolean).join("\n")}>{t(paramLabel(d))}</label>
+          <ParamControl gen={graph} def={d} />
+        </div>
+      ))}
+    </div>
   );
 }

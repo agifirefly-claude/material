@@ -6,11 +6,22 @@ import { loadProject } from "../engine/loader";
 import { Renderer } from "../engine/render/renderer";
 
 type Listener = () => void;
+interface TabState {
+  root: GenGraph;
+  path: string[];
+  selection: string[];
+  title: string;
+  undoStack: string[];
+  redoStack: string[];
+  lastSnapshot: string;
+}
 
 class Editor {
   root: GenGraph = new GenGraph();
   /** show a preview on every node, rather than only where the file asks for one (Material Maker's behaviour) */
   allPreviews = false;
+  /** a preview shown behind the graph (show_background_preview_2d / _3d) */
+  background: "none" | "2d" | "3d" = "none";
   /** names of the subgraphs from the root down to the open one */
   path: string[] = [];
   selection: string[] = [];
@@ -62,6 +73,69 @@ class Editor {
     this.lastSnapshot = JSON.stringify(this.root.serialize());
   }
 
+  /* ----- project tabs (Material Maker's projects panel) ----- */
+  private tabs: TabState[] = [];
+  private current = 0;
+  private capture(): TabState {
+    if (this.snapshotTimer) this.snapshot();
+    return { root: this.root, path: this.path, selection: this.selection, title: this.title, undoStack: this.undoStack, redoStack: this.redoStack, lastSnapshot: this.lastSnapshot };
+  }
+  private apply(t: TabState) {
+    this.root = t.root;
+    this.path = t.path;
+    this.selection = t.selection;
+    this.title = t.title;
+    this.undoStack = t.undoStack;
+    this.redoStack = t.redoStack;
+    this.renderer?.clearCache();
+    this.attach();
+    this.lastSnapshot = t.lastSnapshot;
+  }
+  /** the open projects, the current one included */
+  get projects(): { title: string; current: boolean }[] {
+    if (!this.tabs.length) return [{ title: this.title, current: true }];
+    return this.tabs.map((t, i) => ({ title: i === this.current ? this.title : t.title, current: i === this.current }));
+  }
+  /** a project left untouched since it was created can be replaced rather than kept */
+  private get pristine() {
+    return this.undoStack.length === 0 && !this.snapshotTimer && this.title === "untitled" && this.root.children.length <= 1;
+  }
+  /** opens a project in a new tab (or in the current one, when that one is an untouched new project) */
+  openProject(g: GenGraph, title = "untitled") {
+    if (!this.tabs.length) this.tabs = [this.capture()];
+    if (this.pristine) {
+      this.setRoot(g, title);
+      return;
+    }
+    this.tabs[this.current] = this.capture();
+    this.tabs.push({ root: g, path: [], selection: [], title, undoStack: [], redoStack: [], lastSnapshot: "" });
+    this.current = this.tabs.length - 1;
+    this.apply(this.tabs[this.current]);
+    this.emit();
+  }
+  switchProject(i: number) {
+    if (!this.tabs.length || i === this.current || !this.tabs[i]) return;
+    this.tabs[this.current] = this.capture();
+    this.current = i;
+    this.apply(this.tabs[i]);
+    this.emit();
+  }
+  /** closes a tab; the last one is replaced by a new project */
+  closeProject(i: number, replacement: () => GenGraph) {
+    if (!this.tabs.length) this.tabs = [this.capture()];
+    this.tabs[this.current] = this.capture();
+    this.tabs.splice(i, 1);
+    if (!this.tabs.length) this.tabs.push({ root: replacement(), path: [], selection: [], title: "untitled", undoStack: [], redoStack: [], lastSnapshot: "" });
+    if (i < this.current) this.current--;
+    this.current = Math.min(this.current, this.tabs.length - 1);
+    this.apply(this.tabs[this.current]);
+    this.emit();
+  }
+  hasChanges(i: number): boolean {
+    const t = i === this.current ? this.capture() : this.tabs[i];
+    return !!t && t.undoStack.length > 0;
+  }
+
   setRoot(g: GenGraph, title = "untitled") {
     this.root = g;
     this.path = [];
@@ -76,6 +150,10 @@ class Editor {
 
   load(data: Record<string, unknown>, title: string) {
     this.setRoot(loadProject(data), title);
+  }
+  /** opens file data in a new tab */
+  open(data: Record<string, unknown>, title: string) {
+    this.openProject(loadProject(data), title);
   }
 
   enter(name: string) {

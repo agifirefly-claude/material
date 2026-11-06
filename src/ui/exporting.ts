@@ -86,7 +86,7 @@ export function openProjectFile() {
     if (!f) return;
     try {
       const data = parseProject(await f.text());
-      if (data.nodes) editor.load(data, f.name.replace(/\.(ptex|json|mmg)$/, ""));
+      if (data.nodes) editor.open(data, f.name.replace(/\.(ptex|json|mmg)$/, ""));
       else editor.setStatus("This file is not a Material Maker project");
     } catch (e) {
       editor.setStatus("Cannot open: " + e);
@@ -97,7 +97,7 @@ export function openProjectFile() {
 
 export async function openExample(name: string) {
   const data = await fetch(`data/examples/${name}.json`).then((r) => r.json());
-  editor.load(data, name);
+  editor.open(data, name);
 }
 
 /** every texture map of the material, in one zip */

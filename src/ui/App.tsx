@@ -27,11 +27,10 @@ function confirmDiscard(): boolean {
 
 /** a new project whose material has the preferred size */
 function newMaterial(type?: string) {
-  if (!confirmDiscard()) return;
   const g = newProject(type);
   const m = g.children[0];
   if (m && m.getParameterDef("size")) m.parameters.size = getPrefs().defaultMaterialSize;
-  editor.setRoot(g, "untitled");
+  editor.openProject(g, "untitled");
 }
 import { paint, usePaint } from "./paint/paintStore";
 import { NewPaintDialog, PaintMenuItems, PaintWorkspace } from "./paint/PaintWorkspace";
@@ -70,7 +69,6 @@ function Examples({ onClose }: { onClose: () => void }) {
             <button
               key={n}
               onClick={() => {
-                if (!confirmDiscard()) return;
                 openExample(n);
                 onClose();
               }}
@@ -141,7 +139,7 @@ export function App() {
                   </button>
                 ))}
               <hr />
-              <button onClick={() => (close(), confirmDiscard() && openProjectFile())}>{t("Open…")} (.ptex)</button>
+              <button onClick={() => (close(), openProjectFile())}>{t("Open…")} (.ptex)</button>
               <button onClick={() => (close(), setExamples(true))}>{t("Examples…")}</button>
               <button onClick={() => (close(), saveProject())}>{t("Save")} (.ptex)</button>
               <hr />
@@ -189,6 +187,15 @@ export function App() {
         <Menu label={t("View")}>
           {(close) => (
             <>
+              <button onClick={() => (close(), (editor.background = editor.background === "2d" ? "none" : "2d"), editor.emit())}>
+                {editor.background === "2d" ? "✓ " : ""}
+                {t("Show 2D preview behind the graph")}
+              </button>
+              <button onClick={() => (close(), (editor.background = editor.background === "3d" ? "none" : "3d"), editor.emit())}>
+                {editor.background === "3d" ? "✓ " : ""}
+                {t("Show 3D preview behind the graph")}
+              </button>
+              <hr />
               <button onClick={() => (close(), openDialog("libraries"))}>{t("Libraries…")}</button>
               <button onClick={() => (close(), openDialog("layouts"))}>{t("Panel layout…")}</button>
               {Object.keys(prefs.layoutPresets).map((k) => (
