@@ -10,6 +10,8 @@ import { getSettings, objectSettings, updateSettings, usePreview3DSettings } fro
 import { applyEnvironment, loadEnvironments, useEnvironments, type Stage } from "./preview3d/environments";
 import { PostProcessor } from "./preview3d/postprocess";
 import { CameraMenu, EnvironmentMenu, ModelMenu, PostProcessMenu } from "./preview3d/Menus";
+import { setCurrentMesh } from "../engine/paint/mesh";
+import { geometryToPaintMesh } from "./paint/meshes";
 
 const MAP_KEYS = ["albedo", "orm", "emission", "normal", "depth"] as const;
 /** model_menu.gd rotation speeds, in radians per second */
@@ -175,6 +177,9 @@ export function Preview3D({ active }: { active: boolean }) {
       t.mesh.geometry = geo;
       if (t.mesh.userData.owned) old.dispose();
       t.mesh.userData.owned = owned;
+      // the mesh shown here is the one Mesh Map nodes bake their maps from (MMGenGraph.current_mesh)
+      setCurrentMesh(geometryToPaintMesh(geo, obj.key));
+      editor.emit();
     };
     if (obj.key === "custom") {
       if (custom) use(custom, false);

@@ -67,9 +67,25 @@ export const MESH_MAPS = [
   { name: "Adjacency", output_type: "rgb", map: "adjacency", output: "texture($TEXTURE, $UV).rgb" },
 ];
 
-/** Maps baked from the custom mesh of a smart material. Until a mesh is set, the map is neutral. */
+/** Where Mesh Map nodes get the current mesh's maps (set by the paint module, src/engine/paint/meshmaps.ts):
+ *  the texture of a map, and the bounding box of the mesh. */
+export const meshMapHooks = {
+  texture: null as null | ((renderer: unknown, map: string) => { target: unknown; sig: string } | null),
+  aabb: null as null | (() => { position: number[]; size: number[] } | null),
+};
+
+/** Maps baked from the current mesh (the one in the 3D preview, or the painted model). Until a mesh is set, the map is neutral. */
 export class GenMeshMap extends GenTexture {
-  aabb = { position: [0, 0, 0], size: [1, 1, 1] };
+  private ownAabb = { position: [0, 0, 0], size: [1, 1, 1] };
+  get aabb() {
+    return meshMapHooks.aabb?.() ?? this.ownAabb;
+  }
+  set aabb(v) {
+    this.ownAabb = v;
+  }
+  externalTarget(renderer: unknown) {
+    return meshMapHooks.texture?.(renderer, MESH_MAPS[this.mapIndex].map) ?? null;
+  }
   override getType() {
     return "meshmap";
   }

@@ -31,6 +31,8 @@ function newMaterial(type?: string) {
   if (m && m.getParameterDef("size")) m.parameters.size = getPrefs().defaultMaterialSize;
   editor.setRoot(g, "untitled");
 }
+import { paint, usePaint } from "./paint/paintStore";
+import { NewPaintDialog, PaintMenuItems, PaintWorkspace } from "./paint/PaintWorkspace";
 
 function Menu({ label, children }: { label: string; children: (close: () => void) => React.ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -87,6 +89,8 @@ export function App() {
   const layout = prefs.layout;
   const [examples, setExamples] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [newPaint, setNewPaint] = useState(false);
+  usePaint();
   const [view, setView] = useState<"2d" | "3d">("3d");
   const [toast, setToast] = useState("");
   useEffect(() => {
@@ -146,6 +150,7 @@ export function App() {
                   {t("Export maps at {0}×{0}", s)}
                 </button>
               ))}
+              <PaintMenuItems close={close} onNew={() => setNewPaint(true)} />
             </>
           )}
         </Menu>
@@ -211,6 +216,9 @@ export function App() {
           ↷
         </button>
       </div>
+      {paint.project ? (
+        <PaintWorkspace />
+      ) : (
       <div
         className="main"
         style={{ gridTemplateColumns: `${layout.showLibrary ? layout.left + "px " : ""}1fr${layout.showRight ? " " + layout.right + "px" : ""}` }}
@@ -240,6 +248,7 @@ export function App() {
           <Inspector />
         </div>}
       </div>
+      )}
       <div className="statusbar">
         <span>
           {t("{0} library nodes · {1} node definitions", registry.library.length, Object.keys(registry.nodes).length)}
@@ -250,6 +259,7 @@ export function App() {
       </div>
       {examples && <Examples onClose={() => setExamples(false)} />}
       {exporting && <ExportDialog onClose={() => setExporting(false)} />}
+      {newPaint && <NewPaintDialog onClose={() => setNewPaint(false)} />}
       {toast && <div className="toast">{toast}</div>}
       <DialogHost />
     </div>

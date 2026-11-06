@@ -59,6 +59,10 @@ const lib = read(path.join(mm, "library/base.json"));
 const aliases = read(path.join(mm, "library/aliases.json"));
 fs.writeFileSync(path.join(out, "library.json"), JSON.stringify({ items: lib.lib, aliases }));
 
+// paint brushes (base_brushes.json): brush graphs for paint projects
+const brushes = read(path.join(mm, "library/base_brushes.json"));
+fs.writeFileSync(path.join(out, "brushes.json"), JSON.stringify((brushes.lib ?? brushes).map((b) => joinLines(b))));
+
 // examples
 const exDir = path.join(mm, "examples");
 const exOut = path.join(out, "examples");
