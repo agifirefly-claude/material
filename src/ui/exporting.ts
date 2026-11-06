@@ -1,7 +1,12 @@
 /* Files: saving and opening projects (.ptex, Material Maker's format), exporting images and material maps. */
-import { zipSync } from "fflate";
+import { zip } from "fflate";
+
+/** a zip of the files, built off the main thread (fflate's workers): a big export's maps are hundreds of MB */
+export function zipFiles(files: Record<string, Uint8Array>): Promise<Uint8Array<ArrayBuffer>> {
+  return new Promise((res, rej) => zip(files, { level: 0 }, (e, d) => (e ? rej(e) : res(d as Uint8Array<ArrayBuffer>))));
+}
 import { editor } from "./store";
-import { STANDARD_MAPS, findMaterial, hasStandardMaps, renderMap } from "../engine/materialMaps";
+import { STANDARD_MAPS, findMaterial, hasStandardMaps } from "../engine/materialMaps";
 import { GenContext } from "../engine/context";
 import type { Dict } from "../engine/gen/base";
 import { GenGraph } from "../engine/gen/graph";
@@ -10,6 +15,7 @@ import { expressionShaderCode, planExport, processShader, processConditionals, c
 import type { TextureRef } from "../engine/shader-code";
 import { t } from "./i18n";
 import { parseProject, serializeProject } from "../engine/ptex";
+import { RenderFailure } from "../engine/render/service";
 import { fileName, host, projectPath, setProjectPath } from "./platform";
 import type { Renderer, Target } from "../engine/render/renderer";
 import { encodeExr } from "./preview2d/exr";
@@ -53,8 +59,8 @@ export function exportNodes(g: GenGraph = editor.root, out: GenExport[] = []): G
 }
 
 /** the files of the project's Export nodes, written with the material (gen_export.gd export_material) */
-export async function addExportNodeFiles(files: Record<string, Uint8Array>, project: string): Promise<number> {
-  const r = editor.renderer!;
+export async function addExportNodeFiles(files: Record<string, Uint8Array>, project: string, signal?: AbortSignal): Promise<number> {
+  const r = editor.renders!;
   let n = 0;
   for (const e of exportNodes()) {
     const src = e.getSource(0);
@@ -62,16 +68,50 @@ export async function addExportNodeFiles(files: Record<string, Uint8Array>, proj
     try {
       const sc = src.generator.getShaderCode("uv", src.outputIndex, new GenContext());
       if (!sc.outputType) continue;
-      const tgt = r.render(sc, e.imageSize);
+      const img = await r.image(sc, e.imageSize, { signal });
       const name = e.fileName(project, (x) => x in files);
-      files[name] = new Uint8Array(await (await imageDataToBlob(r.toImageData(tgt), e.format)).arrayBuffer());
-      r.deleteTarget(tgt);
+      files[name] = new Uint8Array(await (await imageDataToBlob(img, e.format)).arrayBuffer());
       n++;
     } catch (err) {
+      if (err instanceof RenderFailure && err.kind === "cancelled") throw err;
       console.error("export node", e.name, err);
     }
   }
   return n;
+}
+
+/* ---------- exports in the background ---------- */
+let running: AbortController | null = null;
+
+/** stops the export that is rendering, if any */
+export function cancelExport(): boolean {
+  if (!running) return false;
+  running.abort();
+  return true;
+}
+if (typeof window !== "undefined")
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && running) cancelExport();
+  });
+
+/** runs an export with its progress in the status bar; Esc cancels it. Renders happen in the render worker, so the
+ *  editor stays usable meanwhile. The project's pictures are loaded first (Material Maker #758, #729). */
+export async function runExport<T>(label: string, work: (signal: AbortSignal, progress: (f: number) => void) => Promise<T>): Promise<T | undefined> {
+  cancelExport();
+  const ac = new AbortController();
+  running = ac;
+  const progress = (f: number) => editor.setStatus(t("{0} {1}% (Esc to cancel)", label, Math.round(f * 100)));
+  progress(0);
+  try {
+    await editor.renders?.imagesLoaded(editor.root);
+    return await work(ac.signal, progress);
+  } catch (e) {
+    if (e instanceof RenderFailure && e.kind === "cancelled") editor.setStatus(t("Export cancelled"));
+    else editor.setStatus(t("Export failed: {0}", e instanceof Error ? e.message : String(e)));
+    return undefined;
+  } finally {
+    if (running === ac) running = null;
+  }
 }
 
 /** the image format a file name asks for (export profiles write .png and .exr maps) */
@@ -164,26 +204,27 @@ export async function openExample(name: string) {
 
 /** every texture map of the material, in one zip */
 export async function exportMaterialMaps(size?: number) {
-  const r = editor.renderer!;
+  const r = editor.renders!;
   const m = findMaterial(editor.root);
   if (!m) return editor.setStatus(t("No material node to export"));
   if (!hasStandardMaps(m)) return editor.setStatus(t("“{0}” has no texture maps to export", m.getTypeName()));
   const s = size ?? m.imageSize;
-  editor.setStatus(t("Exporting {0} maps at {1}×{2}…", STANDARD_MAPS.length, s, s));
-  await new Promise((res) => setTimeout(res, 30));
-  const files: Record<string, Uint8Array> = {};
-  for (const map of STANDARD_MAPS) {
-    if (map.output >= m.getOutputDefs(true).length) continue;
-    const t = renderMap(r, m, map.output, s);
-    if (!t) continue;
-    const png = await imageDataToPng(r.toImageData(t));
-    r.deleteTarget(t);
-    files[`${editor.title}_${map.key}.png`] = new Uint8Array(await png.arrayBuffer());
-  }
-  files[`${editor.title}.ptex`] = new TextEncoder().encode(projectText());
-  await addExportNodeFiles(files, editor.title);
-  downloadBlob(new Blob([zipSync(files, { level: 0 })], { type: "application/zip" }), `${editor.title}_maps.zip`);
-  editor.setStatus(t("Exported {0} maps", Object.keys(files).length - 1));
+  await runExport(t("Exporting {0} maps at {1}×{2}…", STANDARD_MAPS.length, s, s), async (signal, progress) => {
+    const files: Record<string, Uint8Array> = {};
+    // one batch: the maps share the buffers they read
+    const maps = STANDARD_MAPS.filter((map) => map.output < m.getOutputDefs(true).length)
+      .map((map) => ({ map, sc: m.getShaderCode("uv", map.output, new GenContext()) }))
+      .filter((x) => x.sc.outputType);
+    const images = await r.images(
+      maps.map((x) => ({ sc: x.sc, size: s })),
+      { signal, onProgress: (f) => progress(f * 0.9) },
+    );
+    for (let i = 0; i < maps.length; i++) files[`${editor.title}_${maps[i].map.key}.png`] = new Uint8Array(await (await imageDataToPng(images[i])).arrayBuffer());
+    files[`${editor.title}.ptex`] = new TextEncoder().encode(projectText());
+    await addExportNodeFiles(files, editor.title, signal);
+    downloadBlob(new Blob([await zipFiles(files)], { type: "application/zip" }), `${editor.title}_maps.zip`);
+    editor.setStatus(t("Exported {0} maps", Object.keys(files).length - 1));
+  });
 }
 
 /** runs one of the material's export profiles (Godot, Unity, Unreal, Blender, glTF…) and downloads the files as a zip */
@@ -194,33 +235,37 @@ export async function exportForEngine(profile: string, size?: number) {
   const s = size ?? m.imageSize;
   const prefix = editor.title || "material";
   const plan = planExport(m, profile, prefix);
-  editor.setStatus(t("Exporting {0} files for {1}…", plan.length, profile));
-  await new Promise((res) => setTimeout(res, 30));
+  await runExport(t("Exporting {0} files for {1}…", plan.length, profile), async (signal, progress) => {
   const files: Record<string, Uint8Array> = {};
   let buffersCode: ReturnType<typeof processShader> | null = null;
+  let done = 0;
   for (const f of plan) {
+    progress(done++ / plan.length);
     try {
       // a profile's "clipboard" file is text to paste in the engine (gen_material.gd export_material), not a file
       if (f.kind === "text" && f.name === "clipboard") navigator.clipboard?.writeText(f.text.split("\n").filter(Boolean).join("\n")).catch(() => {});
       else if (f.kind === "text") files[f.name] = new TextEncoder().encode(localizeUnrealScript(f.text));
       else if (f.kind === "texture") {
         const sc = f.output !== null ? m.getShaderCode("uv", f.output, new GenContext()) : expressionShaderCode(m, f.expression!);
-        const t = r.render(sc, s);
-        files[f.name] = await encodeTarget(r, t, f.name);
-        r.deleteTarget(t);
+        if (imageFormatOf(f.name) === "exr") files[f.name] = encodeExr(await editor.renders!.floats(sc, s, { signal }), s, s);
+        else files[f.name] = new Uint8Array(await (await imageDataToBlob(await editor.renders!.image(sc, s, { signal }), imageFormatOf(f.name) as "png")).arrayBuffer());
       } else if (f.kind === "buffer") {
+        // the material's own buffers are read from the page's renderer, which holds them
+        await r.imagesLoaded(editor.root);
         buffersCode ??= processShader(m, processConditionals(String(m.shaderModel.preview_shader ?? ""), connectionsAndParametersContext(m)));
         const u = buffersCode.shaderCode.uniforms.find((x) => x.name === f.uniform);
         const t = u && r.textureFor(u.value as TextureRef);
         if (t) files[f.name] = await encodeTarget(r, t, f.name);
       }
     } catch (e) {
+      if (e instanceof RenderFailure && e.kind === "cancelled") throw e;
       console.error("export", f.name, e);
     }
   }
   // the Unreal 5 script imports the helper module mm.py from its own folder
   if (needsUnrealMm(plan) && !("mm.py" in files)) files["mm.py"] = new TextEncoder().encode(UNREAL_MM_PY);
-  await addExportNodeFiles(files, prefix);
-  downloadBlob(new Blob([zipSync(files, { level: 0 })], { type: "application/zip" }), `${prefix}_${profile.replaceAll("/", "_").replaceAll(" ", "_")}.zip`);
+  await addExportNodeFiles(files, prefix, signal);
+  downloadBlob(new Blob([await zipFiles(files)], { type: "application/zip" }), `${prefix}_${profile.replaceAll("/", "_").replaceAll(" ", "_")}.zip`);
   editor.setStatus(t("Exported {0} files for {1}", Object.keys(files).length, profile));
+  });
 }

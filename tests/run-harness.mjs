@@ -4,7 +4,7 @@ import { createServer } from "vite";
 import fs from "node:fs";
 
 const mode = process.argv[2] ?? "all";
-const server = await createServer({ server: { port: +(process.env.HARNESS_PORT ?? 5199), host: "127.0.0.1" }, logLevel: "error" });
+const server = await createServer({ server: { port: +(process.env.HARNESS_PORT ?? 5199), host: "127.0.0.1" }, logLevel: "error", cacheDir: process.env.VITE_CACHE_DIR || undefined });
 await server.listen();
 // the port Vite really took: when the asked one is busy (another checkout's harness) it moves to the next one
 const port = server.httpServer.address().port;

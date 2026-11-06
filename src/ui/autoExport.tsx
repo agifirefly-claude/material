@@ -37,14 +37,15 @@ function formatOf(name: string): "png" | "jpg" | "webp" {
 /** the node's input as an image file, or null when nothing is connected */
 async function render(g: GenAutoExport): Promise<Blob | null> {
   const src = g.getSource(0);
-  if (!src || !editor.renderer) return null;
+  if (!src || !editor.renders) return null;
   const sc = src.generator.getShaderCode("uv", src.outputIndex, new GenContext());
   if (!sc.outputType) return null;
-  const r = editor.renderer;
+  const r = editor.renders;
+  await r.imagesLoaded(editor.root);
   // keyed: unchanged inputs are not re-rendered, and `changed` says whether the file is out of date
-  const res = r.renderKeyed("autoexport:" + g.id, sc, g.imageSize);
-  if (!res.target || (!res.changed && written.has(g.id))) return null;
-  return imageDataToBlob(r.toImageData(res.target), formatOf(String(g.getParameter("filename"))));
+  const res = await r.keyedImage("autoexport:" + g.id, sc, g.imageSize);
+  if (!res.image || (!res.changed && written.has(g.id))) return null;
+  return imageDataToBlob(res.image, formatOf(String(g.getParameter("filename"))));
 }
 
 let writing: Promise<void> | null = null;

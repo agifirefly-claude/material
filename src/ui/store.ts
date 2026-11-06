@@ -4,6 +4,7 @@ import { GenGraph } from "../engine/gen/graph";
 import type { Gen } from "../engine/gen/base";
 import { loadProject } from "../engine/loader";
 import { Renderer } from "../engine/render/renderer";
+import type { RenderService } from "../engine/render/service";
 import { UndoHistory } from "./undoHistory";
 
 type Listener = () => void;
@@ -34,7 +35,10 @@ class Editor {
   path: string[] = [];
   selection: string[] = [];
   title = "untitled";
+  /** the page's own renderer: tests, paint mode, mesh maps, and what the render worker cannot do */
   renderer: Renderer | null = null;
+  /** previews and exports: in the render worker where the browser can, otherwise on `renderer` */
+  renders: RenderService | null = null;
   version = 0;
   private listeners = new Set<Listener>();
   private history = new UndoHistory();
@@ -66,8 +70,12 @@ class Editor {
     return () => this.listeners.delete(l);
   };
   getVersion = () => this.version;
+  /** like `version`, without status messages: what renders and the graph view depend on. A message (an export's
+   *  progress, every few hundred milliseconds) must not redraw every preview. */
+  contentVersion = 0;
   emit = () => {
     this.version++;
+    this.contentVersion++;
     for (const l of this.listeners) l();
   };
 
@@ -94,6 +102,10 @@ class Editor {
   get currentIndex() {
     return this.tabs.length ? this.current : 0;
   }
+  /** the graphs of every open tab (what renders may still be needed for) */
+  openRoots(): GenGraph[] {
+    return [this.root, ...this.tabs.map((t) => t.root).filter((r) => r !== this.root)];
+  }
   private capture(): TabState {
     if (this.snapshotTimer) this.snapshot();
     return { root: this.root, path: this.path, selection: this.selection, title: this.title, history: this.history, data: this.data };
@@ -106,6 +118,7 @@ class Editor {
     this.title = t.title;
     this.history = t.history;
     this.renderer?.clearCache();
+    this.renders?.clearCache();
     this.attach();
     // a new tab's history starts from what it opened with
     this.history.current ??= this.serialized();
@@ -181,6 +194,7 @@ class Editor {
     this.selection = [];
     this.title = title;
     this.renderer?.clearCache();
+    this.renders?.clearCache();
     this.attach();
     this.history = new UndoHistory(this.serialized());
     this.emit();
@@ -271,7 +285,8 @@ class Editor {
 
   setStatus(s: string) {
     this.status = s;
-    this.emit();
+    this.version++;
+    for (const l of this.listeners) l();
   }
 }
 

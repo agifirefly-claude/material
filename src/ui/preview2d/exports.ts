@@ -3,6 +3,8 @@ import { zipSync } from "fflate";
 import type { Gen } from "../../engine/gen/base";
 import { ShaderCode, type TextureRef } from "../../engine/shader-code";
 import type { Renderer, Target } from "../../engine/render/renderer";
+import type { RenderService } from "../../engine/render/service";
+import { rootOf } from "../../engine/render/maps";
 import { downloadBlob } from "../exporting";
 import { imageShaderCode } from "./view";
 import { encodeExr } from "./exr";
@@ -43,14 +45,20 @@ export function interpretFileName(pattern: string, g: Gen, output: number, size:
   return pattern.replaceAll("$project", project).replaceAll("$node", g.name).replaceAll("$output", String(output)).replaceAll("$resolution", String(size)).replaceAll("$idx", "01");
 }
 
-export async function exportImage(r: Renderer, g: Gen, output: number, size: number, type: ImageType, name: string) {
+/** one output of a node as an image (in the render worker where the browser can), once its pictures have loaded */
+export async function serviceImage(s: RenderService, g: Gen, output: number, size: number): Promise<ImageData> {
+  await s.imagesLoaded(rootOf(g));
+  return s.image(imageShaderCode(g, output, size), size, { preview: false });
+}
+
+export async function exportImage(s: RenderService, g: Gen, output: number, size: number, type: ImageType, name: string) {
+  await s.imagesLoaded(rootOf(g));
   if (type === "exr") {
-    const t = r.render(imageShaderCode(g, output, size), size, { preview: false, f32: true });
-    downloadBlob(targetExr(r, t), `${name}.exr`);
-    r.deleteTarget(t);
+    const px = await s.floats(imageShaderCode(g, output, size), size, { preview: false, f32: true });
+    downloadBlob(new Blob([encodeExr(px, size, size) as BlobPart], { type: IMAGE_TYPES.exr }), `${name}.exr`);
     return;
   }
-  const c = canvasOf(renderImage(r, g, output, size));
+  const c = canvasOf(await serviceImage(s, g, output, size));
   downloadBlob(await canvasBlob(c, type), `${name}.${type}`);
 }
 
@@ -67,15 +75,22 @@ export interface AnimationSettings {
 }
 
 /** renders the frames at times begin + (end-begin)*i/images and writes a spritesheet PNG or a zip of PNGs */
-export async function exportAnimation(r: Renderer, g: Gen, output: number, s: AnimationSettings, name: string, progress?: (f: number) => void): Promise<Blob> {
+export async function exportAnimation(svc: RenderService, g: Gen, output: number, s: AnimationSettings, name: string, progress?: (f: number) => void): Promise<Blob> {
   const frames: ImageData[] = [];
-  const saved = r.time;
+  const r = svc.main;
+  await svc.imagesLoaded(rootOf(g));
+  const saved = svc.time;
   for (let i = 0; i < s.images; i++) {
-    frames.push(renderImage(r, g, output, s.size, s.begin + ((s.end - s.begin) * i) / s.images, s.height ?? s.size));
+    const time = s.begin + ((s.end - s.begin) * i) / s.images;
+    // square frames render in the worker; others (rare) on the page
+    if ((s.height ?? s.size) === s.size) {
+      svc.time = time;
+      frames.push(await svc.image(imageShaderCode(g, output, s.size), s.size, { preview: false }));
+    } else frames.push(renderImage(r, g, output, s.size, time, s.height ?? s.size));
     progress?.((i + 1) / s.images);
     await new Promise((res) => setTimeout(res, 0));
   }
-  r.time = saved;
+  svc.time = saved;
   if (s.spritesheet === 0) {
     const files: Record<string, Uint8Array> = {};
     const digits = String(s.images).length;

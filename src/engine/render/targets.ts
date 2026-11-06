@@ -37,3 +37,21 @@ export function clearTarget(gl: WebGL2RenderingContext, t: Target): void {
   gl.clearColor(0, 0, 0, 0);
   gl.clear(gl.COLOR_BUFFER_BIT);
 }
+
+/** 8 bit pixels from float ones, as a PNG stores them */
+export function toBytes(px: Float32Array, out: Uint8ClampedArray<ArrayBuffer> = new Uint8ClampedArray(px.length), offset = 0): Uint8ClampedArray<ArrayBuffer> {
+  for (let i = 0; i < px.length; i++) out[offset + i] = Math.round(Math.min(1, Math.max(0, px[i])) * 255);
+  return out;
+}
+
+/** the vertex array of the triangle that covers the viewport, which every pass draws */
+export function fullScreenTriangle(gl: WebGL2RenderingContext): WebGLVertexArrayObject {
+  const vao = gl.createVertexArray()!;
+  gl.bindVertexArray(vao);
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  return vao;
+}

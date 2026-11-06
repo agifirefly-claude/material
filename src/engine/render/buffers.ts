@@ -38,13 +38,17 @@ export function renderBuffer(host: RenderHost, g: GenBuffer, stack: Set<string>)
   return renderCached(host, g.genName + "_tex", job.source, job.size, job.f32, job.mipmap, stack);
 }
 
+/** the most passes an Iterate Buffer runs: its iteration count is a parameter (and can come from an expression), and
+ *  each pass is a full render of the buffer, so a mistyped count could keep the GPU busy for minutes */
+export const MAX_ITERATIONS = 1024;
+
 /** the init pass, then the loop pass `iterations` times, each reading the previous result */
 export function renderIterateBuffer(host: RenderHost, g: GenIterateBuffer, stack: Set<string>): Resolved {
   const key = g.genName + "_it_tex";
   const { init, loop } = g.jobs();
   const builtInit = buildFragmentShader(init);
   const builtLoop = buildFragmentShader(loop);
-  const iterations = g.iterations;
+  const iterations = Math.max(0, Math.min(MAX_ITERATIONS, Math.floor(Number(g.iterations) || 0)));
   const size = g.size;
   const f32 = !!g.getParameter("f32");
   const mipmap = !!g.getParameter("mipmap");

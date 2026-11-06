@@ -4,6 +4,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { editor, useEditor } from "./store";
 import { findMaterial, previewMaps } from "../engine/materialMaps";
 import { previews } from "./previews";
+import type { PreviewJob } from "../engine/render/service";
 import { isColor } from "../engine/params/types";
 import { buildGeometry, loadModel, objectByKey } from "./preview3d/objects";
 import { getSettings, objectSettings, updateSettings, usePreview3DSettings } from "./preview3d/settings";
@@ -143,6 +144,12 @@ export function Preview3D({ active }: { active: boolean }) {
       e.stopImmediatePropagation();
       updateSettings({ fov: Math.min(90, Math.max(10, getSettings().fov + (e.deltaY > 0 ? -1 : 1))) });
     };
+    // when the user last moved the view (see the loop)
+    let touched = 0;
+    const touch = (e: Event) => {
+      if (e.type !== "pointermove" || (e as PointerEvent).buttons) touched = performance.now();
+    };
+    for (const ev of ["pointerdown", "pointermove", "wheel"] as const) renderer.domElement.addEventListener(ev, touch, { passive: true, capture: true });
     renderer.domElement.addEventListener("pointerdown", down, true);
     renderer.domElement.addEventListener("pointermove", move);
     renderer.domElement.addEventListener("pointerup", upH);
@@ -157,6 +164,10 @@ export function Preview3D({ active }: { active: boolean }) {
       // Material Maker's fps_limit
       const fps = getPrefs().fpsLimit;
       if (fps > 0 && now - last < 1000 / fps - 2) return;
+      // while renders wait for the GPU (a big export, many previews) the model stops turning and the view is drawn
+      // only when the user moves it: every WebGL context shares the GPU, and each frame drawn here makes the page
+      // wait for the renders queued before it
+      if (editor.renders?.congested && now - touched > 500) return;
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       pivot.rotateY(ROTATION_SPEEDS[getSettings().rotationSpeed] * dt);
@@ -260,9 +271,11 @@ export function Preview3D({ active }: { active: boolean }) {
   useEffect(() => {
     if (!active) return;
     const t = three.current;
-    const r = editor.renderer;
+    const r = editor.renders;
     if (!t || !r) return;
-    const timer = setTimeout(() => {
+    let stale = false;
+    // the maps render in the render worker and arrive as pictures, drawn into the canvases the textures read
+    const timer = setTimeout(async () => {
       const m = findMaterial(editor.root);
       if (!m) return setNote(tr("This project has no material node."));
       const spec = previewMaps(m);
@@ -272,31 +285,42 @@ export function Preview3D({ active }: { active: boolean }) {
       r.time = performance.now() / 1000;
       const present = new Set<string>();
       let usesTime = false;
+      const keys: (typeof MAP_KEYS)[number][] = [];
+      const jobs: PreviewJob[] = [];
       for (const k of MAP_KEYS) {
         try {
           const sc = spec.maps[k]();
           if (!sc || !sc.outputType) continue;
-          const res = r.renderKeyed("3d:" + k, sc, size);
-          usesTime ||= res.usesTime;
-          const target = res.target;
-          if (!target) continue;
-          present.add(k);
           const c = t.canvases[k];
           const resized = c.width !== size;
-          if (resized) c.width = c.height = size;
-          r.present(target, c.getContext("2d")!, false);
           if (resized) {
+            c.width = c.height = size;
             t.textures[k].dispose();
             const nt = new THREE.CanvasTexture(c);
             nt.wrapS = nt.wrapT = THREE.RepeatWrapping;
             nt.colorSpace = t.textures[k].colorSpace;
             nt.anisotropy = 8;
             t.textures[k] = nt;
-          } else t.textures[k].needsUpdate = true;
+          }
+          keys.push(k);
+          jobs.push({ key: "3d:" + k, sc, size, ctx: c.getContext("2d")!, checker: false, force: resized });
         } catch (e) {
           console.warn("3D map", k, e);
         }
       }
+      let results;
+      try {
+        results = await r.previews(jobs);
+      } catch (e) {
+        return console.warn("3D maps", e);
+      }
+      if (stale) return;
+      results.forEach((x, i) => {
+        const k = keys[i];
+        usesTime ||= x.usesTime;
+        present.add(k);
+        if (x.drawn) t.textures[k].needsUpdate = true;
+      });
       const p = m.parameters;
       const mat = t.material;
       mat.map = t.textures.albedo;
@@ -342,8 +366,11 @@ export function Preview3D({ active }: { active: boolean }) {
       } else mat.displacementMap = null;
       mat.needsUpdate = true;
     }, animTick ? 70 : 120);
-    return () => clearTimeout(timer);
-  }, [editor.version, active, res, displace, uvScale, animTick]);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [editor.contentVersion, active, res, displace, uvScale, animTick]);
 
   return (
     <div className="preview-pane" style={{ flex: 1 }}>

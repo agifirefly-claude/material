@@ -4,6 +4,7 @@
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import type { Renderer } from "../engine/render/renderer";
+import { pictureRenderer, rootOf, type PictureRenderer } from "../engine/render/maps";
 import type { GenMaterial } from "../engine/gen/misc";
 import { previewMaps } from "../engine/materialMaps";
 import { isColor } from "../engine/params/types";
@@ -11,7 +12,9 @@ import { isColor } from "../engine/params/types";
 export type MapName = "albedo" | "orm" | "normal" | "emission";
 
 /** the material's maps as 8 bit pictures, only those its inputs feed (an unconnected map is left out, as Material Maker does) */
-export function materialPictures(r: Renderer, m: GenMaterial, size: number): Partial<Record<MapName, ImageData>> {
+export async function materialPictures(renderer: Renderer | PictureRenderer, m: GenMaterial, size: number): Promise<Partial<Record<MapName, ImageData>>> {
+  const r = pictureRenderer(renderer);
+  await r.imagesLoaded(rootOf(m));
   const spec = previewMaps(m);
   if (!spec || spec.unlit) throw new Error("Only PBR materials (Static or Dynamic PBR) can be exported this way");
   const connected = (input: string) => !m.getInputDefs().some((d) => d.name === input) || m.isConnected(input);
@@ -26,9 +29,7 @@ export function materialPictures(r: Renderer, m: GenMaterial, size: number): Par
     if (!on) continue;
     const sc = spec.maps[k]();
     if (!sc?.outputType) continue;
-    const t = r.render(sc, size);
-    out[k] = r.toImageData(t);
-    r.deleteTarget(t);
+    out[k] = await r.image(sc, size);
   }
   return out;
 }
@@ -85,8 +86,8 @@ export function cocosImageMeta(id: string, displayName: string) {
 }
 
 /** The files of a Cocos Creator 3.x material: drop the folder into the project's assets. */
-export async function cocosFiles(r: Renderer, m: GenMaterial, name: string, size: number): Promise<Record<string, Uint8Array>> {
-  const pics = materialPictures(r, m, size);
+export async function cocosFiles(r: Renderer | PictureRenderer, m: GenMaterial, name: string, size: number): Promise<Record<string, Uint8Array>> {
+  const pics = await materialPictures(r, m, size);
   const f = materialFactors(m);
   const files: Record<string, Uint8Array> = {};
   const enc = (v: unknown) => new TextEncoder().encode(JSON.stringify(v, null, 2));
@@ -140,8 +141,8 @@ export async function cocosFiles(r: Renderer, m: GenMaterial, name: string, size
 export type GltfShape = "plane" | "sphere" | "cube";
 
 /** a .glb holding the material on a plane, sphere or cube (metallic-roughness PBR, the maps embedded) */
-export async function glbFile(r: Renderer, m: GenMaterial, name: string, size: number, shape: GltfShape): Promise<Uint8Array> {
-  const pics = materialPictures(r, m, size);
+export async function glbFile(r: Renderer | PictureRenderer, m: GenMaterial, name: string, size: number, shape: GltfShape): Promise<Uint8Array> {
+  const pics = await materialPictures(r, m, size);
   const f = materialFactors(m);
   const texture = (img: ImageData, srgb: boolean) => {
     const c = document.createElement("canvas");
