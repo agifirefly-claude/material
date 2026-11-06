@@ -9,10 +9,12 @@ import { GenGraph } from "../engine/gen/graph";
 import { GenContext } from "../engine/context";
 import { downloadBlob, imageDataToBlob } from "./exporting";
 import { t } from "./i18n";
+import { hostSavePicker } from "./platform";
 
 type Handle = { name: string; createWritable(): Promise<{ write(d: Blob): Promise<void>; close(): Promise<void> }> };
 type SavePicker = (o: { suggestedName?: string; types?: { description: string; accept: Record<string, string[]> }[] }) => Promise<Handle>;
-const picker = (): SavePicker | undefined => (window as unknown as { showSaveFilePicker?: SavePicker }).showSaveFilePicker;
+// in the desktop app the host writes the file (src/ui/platform.ts)
+const picker = (): SavePicker | undefined => (hostSavePicker() as SavePicker | undefined) ?? (window as unknown as { showSaveFilePicker?: SavePicker }).showSaveFilePicker;
 export const canWriteFiles = () => typeof window !== "undefined" && !!picker();
 
 const handles = new Map<number, Handle>();

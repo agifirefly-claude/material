@@ -1,0 +1,53 @@
+name: macOS app
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      # unsigned (ad hoc) unless the signing secrets are set; notarized when the Apple ones are too (docs/Mac应用.md)
+      - name: Build dmg and zip (arm64, x64)
+        run: node electron/build-mac.mjs
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      # the built app opens, renders with WebGL2 and saves a project through the native bridge
+      # (hosted runners have no real GPU; a failure here does not hold back the artifacts)
+      - name: Smoke test the packaged app
+        continue-on-error: true
+        run: |
+          APP="$(ls -d release/mac-arm64/*.app 2>/dev/null || ls -d release/mac/*.app | head -1)"
+          node electron/smoke.mjs "$APP/Contents/MacOS/Material Pro"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: material-pro-mac
+          path: |
+            release/*.dmg
+            release/*.zip
+          if-no-files-found: error
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.dmg
+            release/*.zip

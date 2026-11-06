@@ -36,6 +36,9 @@ function newMaterial(type?: string) {
   editor.openProject(g, "untitled");
 }
 import { paint, usePaint } from "./paint/paintStore";
+import { useHostIntegration } from "./hostIntegration";
+
+const MANUAL_URL = "https://rodzill4.github.io/material-maker/doc/";
 import { NewPaintDialog, PaintMenuItems, PaintWorkspace } from "./paint/PaintWorkspace";
 
 function Menu({ label, children }: { label: string; children: (close: () => void) => React.ReactNode }) {
@@ -95,6 +98,22 @@ export function App() {
   const [exporting, setExporting] = useState(false);
   const [newPaint, setNewPaint] = useState(false);
   usePaint();
+  // the desktop app's menu (electron/main.cjs); the Edit commands it does not name go to editCommand
+  useHostIntegration({
+    new: () => newMaterial(),
+    newPaint: () => setNewPaint(true),
+    open: openProjectFile,
+    examples: () => setExamples(true),
+    save: () => (paint.project ? paint.save() : saveProject()),
+    saveAs: () => (paint.project ? paint.save() : saveProject(true)),
+    export: () => setExporting(true),
+    exportMaps: () => void exportMaterialMaps(),
+    preferences: () => openDialog("preferences"),
+    about: () => openDialog("about"),
+    libraries: () => openDialog("libraries"),
+    layouts: () => openDialog("layouts"),
+    manual: () => window.open(MANUAL_URL, "_blank"),
+  });
   const [toast, setToast] = useState("");
   // Material Maker's confirm_quit: the browser asks before leaving with changes
   useEffect(() => {
@@ -233,7 +252,7 @@ export function App() {
         <Menu label={t("Help")}>
           {(close) => (
             <>
-              <button onClick={() => (close(), window.open("https://rodzill4.github.io/material-maker/doc/", "_blank"))}>{t("User manual")}</button>
+              <button onClick={() => (close(), window.open(MANUAL_URL, "_blank"))}>{t("User manual")}</button>
               <button onClick={() => (close(), openDialog("about"))}>{t("About…")}</button>
             </>
           )}

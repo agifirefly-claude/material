@@ -1,0 +1,57 @@
+# The macOS app (docs/Mac应用.md). npm run electron:build (macOS) → release/Material Pro-<version>-<arch>.dmg / .zip
+# Unsigned (ad hoc) by default; with CSC_LINK + CSC_KEY_PASSWORD it is signed with a Developer ID, and with APPLE_ID +
+# APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID (or APPLE_API_KEY + APPLE_API_KEY_ID + APPLE_API_ISSUER) also notarized.
+appId: io.github.agifirefly-wu.materialpro
+productName: Material Pro
+copyright: Copyright © 2026 Material Pro contributors
+directories:
+  output: release
+  buildResources: build
+extraMetadata:
+  main: electron/main.cjs
+# the page is bundled by Vite: the app needs dist/ and electron/, no node_modules
+files:
+  - dist/**/*
+  - electron/main.cjs
+  - electron/preload.cjs
+  - electron/selftest.cjs
+  - "!node_modules/**/*"
+asar: true
+npmRebuild: false
+fileAssociations:
+  - ext: ptex
+    name: Material Pro Material
+    description: Material Pro material project
+    role: Editor
+    rank: Owner
+    mimeType: application/x-material-pro-ptex
+  - ext: mmpp
+    name: Material Pro Paint Project
+    description: Material Pro paint project
+    role: Editor
+    rank: Owner
+mac:
+  category: public.app-category.graphics-design
+  icon: build/icon.png
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # signing identity: CSC_LINK / CSC_NAME, or ad hoc ("-") when electron/build-mac.mjs finds no certificate;
+  # notarization runs when the APPLE_* variables are set
+  extendInfo:
+    NSCameraUsageDescription: The Webcam node shows the camera as a texture.
+    NSHighResolutionCapable: true
+  artifactName: Material-Pro-${version}-${arch}.${ext}
+dmg:
+  writeUpdateInfo: false
+linux:
+  target: dir
+  icon: build/icon.png
+  category: Graphics
+publish: null

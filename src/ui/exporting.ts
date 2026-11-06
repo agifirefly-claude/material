@@ -10,8 +10,19 @@ import { GenExport } from "../engine/gen/misc";
 import { expressionShaderCode, planExport, processShader, processConditionals, connectionsAndParametersContext } from "../engine/export";
 import type { TextureRef } from "../engine/shader-code";
 import { t } from "./i18n";
+import { fileName, host, projectPath, setProjectPath } from "./platform";
 
 export function downloadBlob(blob: Blob, name: string) {
+  // the desktop app: a save dialog and a real file instead of a download
+  if (host) {
+    const h = host;
+    blob
+      .arrayBuffer()
+      .then((b) => h.save(new Uint8Array(b), name))
+      .then((p) => p && editor.setStatus(t("Saved {0}", p)))
+      .catch((e) => editor.setStatus(t("Cannot save {0}: {1}", name, String(e))));
+    return;
+  }
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = name;
@@ -107,9 +118,23 @@ export function projectText(): string {
   return JSON.stringify(splitLines(data), null, "\t");
 }
 
-export function saveProject() {
+export function saveProject(saveAs = false) {
   editor.snapshot();
-  downloadBlob(new Blob([projectText()], { type: "application/json" }), `${editor.title || "material"}.ptex`);
+  if (host) {
+    // the desktop app saves in place once the project has a file, and asks where the first time (or for Save As)
+    const root = editor.root;
+    const text = projectText();
+    host
+      .save(new TextEncoder().encode(text), `${editor.title || "material"}.ptex`, saveAs ? null : projectPath(root))
+      .then((p) => {
+        if (!p) return;
+        setProjectPath(root, p);
+        if (editor.root === root) editor.setTabTitle(editor.currentIndex, fileName(p).replace(/\.ptex$/i, ""));
+        markSaved(root, text);
+        editor.setStatus(t("Saved {0}", p));
+      })
+      .catch((e) => editor.setStatus(t("Cannot save {0}: {1}", editor.title, String(e))));
+  } else downloadBlob(new Blob([projectText()], { type: "application/json" }), `${editor.title || "material"}.ptex`);
   try {
     localStorage.setItem("material-pro:autosave", JSON.stringify({ title: editor.title, text: projectText() }));
   } catch {
@@ -121,7 +146,21 @@ export function parseProject(text: string): Dict {
   return PROCESS_JOIN(JSON5.parse(text)) as Dict;
 }
 
+/** in the desktop app, what a project looked like when it was opened or saved, to tell whether it has changed */
+const savedText = new WeakMap<object, string>();
+export function markSaved(root: object, text: string) {
+  savedText.set(root, text);
+}
+export const savedVersionOf = (root: object) => savedText.get(root);
+
 export function openProjectFile() {
+  if (host) {
+    // the files are opened by the host integration (src/ui/hostIntegration.ts), like files opened from Finder
+    host
+      .open({ multiple: true, filters: [{ name: t("Projects"), extensions: ["ptex", "json", "mmg", "mmpp", "zip"] }] })
+      .then((files) => files && window.dispatchEvent(new CustomEvent("mp-open-files", { detail: files })));
+    return;
+  }
   const input = document.createElement("input");
   input.type = "file";
   input.accept = ".ptex,.json,.mmg";
