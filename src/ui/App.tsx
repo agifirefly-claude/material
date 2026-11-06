@@ -7,7 +7,9 @@ import { Preview2D } from "./Preview2D";
 import { Preview3D } from "./Preview3D";
 import { exportForEngine, exportMaterialMaps, openExample, openProjectFile, parseProject, projectText, saveProject } from "./exporting";
 import { exportProfiles } from "../engine/export";
-import { findMaterial } from "./materialMaps";
+import { findMaterial, previewMaps } from "./materialMaps";
+import { raymarchPreviewSupported } from "../engine/preview3d";
+import { PreviewRay } from "./PreviewRay";
 import { newProject } from "../engine/loader";
 import { registry } from "../engine/registry";
 
@@ -85,6 +87,8 @@ export function App() {
   }, [editor.version]);
 
   const r = editor.renderer;
+  const material = findMaterial(editor.root);
+  const rayMaterial = material && !previewMaps(material) && raymarchPreviewSupported(material) ? material : null;
   const [, tick] = useState(0);
   useEffect(() => {
     const i = setInterval(() => tick((x) => x + 1), 2000);
@@ -163,9 +167,10 @@ export function App() {
             </button>
           </div>
           <div style={{ height: "42%", display: "flex", minHeight: 200 }}>
-            <div style={{ display: view === "3d" ? "flex" : "none", flex: 1, minWidth: 0 }}>
-              <Preview3D active={view === "3d"} />
+            <div style={{ display: view === "3d" && !rayMaterial ? "flex" : "none", flex: 1, minWidth: 0 }}>
+              <Preview3D active={view === "3d" && !rayMaterial} />
             </div>
+            {view === "3d" && rayMaterial && <PreviewRay m={rayMaterial} />}
             {view === "2d" && <Preview2D />}
           </div>
           <Inspector />

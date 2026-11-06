@@ -159,3 +159,25 @@ window.exportText = async (type, profile, file) => {
   const f = planExport(m, profile, "test")[file];
   return f.kind === "text" ? f.name + "\n" + f.text : f.name;
 };
+import { raymarchPreview } from "../src/engine/preview3d";
+declare global {
+  interface Window {
+    rayShot: (type: string, input: string, node: string) => Promise<string>;
+  }
+}
+/** the 3D preview of a material evaluated in 3D space, with one library node connected */
+window.rayShot = async (type, input, node) => {
+  const r = await rp;
+  const p = newProject(type);
+  const m = p.children[0] as GenMaterial;
+  const n = createGen({ type: node })!;
+  p.addGenerator(n);
+  p.connectChildren(n, 0, m, m.getInputDefs().findIndex((d) => d.name === input));
+  const res = r.renderKeyed("ray", raymarchPreview(m, { yaw: 0.6, pitch: -0.35, dist: 2.2 }, "sphere"), 256, false);
+  if (res.error) throw new Error(res.error.log);
+  const img = r.toImageData(res.target!);
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  c.getContext("2d")!.putImageData(img, 0, 0);
+  return c.toDataURL("image/png");
+};

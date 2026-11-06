@@ -48,6 +48,12 @@ if (mode === "export-text") {
   const [type, profile, file = "0"] = process.argv.slice(3);
   console.log(await page.evaluate(([t, p, f]) => window.exportText(t, p, +f), [type, profile, file]));
 }
+if (mode === "ray") {
+  const [type, input, node, file] = process.argv.slice(3);
+  const url = await page.evaluate(([t, i, n]) => window.rayShot(t, i, n), [type, input, node]);
+  fs.writeFileSync(file, Buffer.from(url.split(",")[1], "base64"));
+  console.log("wrote", file);
+}
 if (mode === "shot") {
   const [name, out = "0", size = "512", file = `${name}.png`] = process.argv.slice(3);
   const url = await page.evaluate(([n, o, s]) => window.renderExample(n, +o, +s), [name, out, size]);
