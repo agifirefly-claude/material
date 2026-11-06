@@ -169,3 +169,27 @@ select { padding: 2px 4px; }
 .sdf-row button { padding: 0 4px; font-size: 10px; line-height: 14px; background: transparent; border-color: transparent; opacity: .6; }
 .sdf-row:hover button, .sdf-row.sel button { opacity: 1; }
 .sdf-row button:hover { border-color: var(--line); }
+.sdf-tree:focus { outline: 1px solid var(--accent2); }
+.sdf-fx { padding: 0 6px; font-style: italic; }
+.sdf-fx.on { background: var(--accent2); border-color: var(--accent); }
+.sdf-expr { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 4px; }
+.sdf-expr input { font-family: ui-monospace, Menlo, Consolas, monospace; }
+.sdf-expr-value { color: #e7c46a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* SDF builder window */
+.modal.sdf-builder { width: min(1180px, 96vw); max-height: 94vh; display: flex; flex-direction: column; padding: 10px; }
+.sdf-builder-head { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+.sdf-builder-head h2 { margin: 0; }
+.sdf-builder-head .grow { flex: 1; }
+.sdf-builder-body { display: flex; gap: 10px; min-height: 0; flex: 1; }
+.sdf-builder-side { width: 400px; flex: none; overflow: auto; padding: 0 4px 0 0; }
+.sdf-builder-view { display: flex; flex-direction: column; gap: 6px; }
+.sdf-builder-view .tools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.sdf-builder-canvas { position: relative; background: #111; border: 1px solid var(--line); border-radius: 4px; }
+.sdf-builder-canvas canvas, .sdf-overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
+.sdf-overlay { touch-action: none; cursor: grab; }
+.sdf-builder-error { position: absolute; inset: auto 0 0 0; background: #000c; color: var(--danger); padding: 6px; font-size: 11px; white-space: pre-wrap; }
+.sdf-nodeparam { display: grid; grid-template-columns: 1fr 1fr 1.2fr auto auto auto; gap: 3px; align-items: center; padding: 3px 0; border-bottom: 1px solid var(--line); }
+.sdf-nodeparam button { padding: 0 5px; }
+.sdf-nodeparam-range { grid-column: 1 / -1; display: flex; gap: 4px; align-items: center; color: var(--text3); }
+.sdf-nodeparam-range input { width: 64px; }

@@ -7,6 +7,7 @@ import { GenGraph } from "../src/engine/gen/graph";
 import { GenMaterial } from "../src/engine/gen/misc";
 import type { Gen } from "../src/engine/gen/base";
 import { GenSDF } from "../src/engine/gen/sdf";
+import { sdfPreview2D, sdfPreview3D } from "../src/engine/sdf/preview";
 import { SDF_ITEM_TYPES, newSceneItem, type SdfScene } from "../src/engine/sdf/builder";
 
 declare global {
@@ -293,6 +294,21 @@ window.runSdf = async () => {
         g.setSdfScene(structuredClone(scene));
         return g;
       }, !editorMode);
+      if (editorMode) {
+        // the builder window's own preview of the scene
+        try {
+          const g = new GenSDF();
+          g.editor = true;
+          new GenGraph().addGenerator(g);
+          g.setSdfScene(structuredClone(scene));
+          const sc = g.getSceneType() === "SDF3D" ? sdfPreview3D(g, { yaw: 0.5, pitch: -0.3, dist: 3, target: [0, 0, 0] }, scene[0].index) : sdfPreview2D(g, { center: { x: 0.5, y: 0.5 }, scale: 1.2, style: 0 }, scene[0].index);
+          const e = r.check(sc, false);
+          if (e) failures[name + " [builder preview]"] = firstError(e);
+          else ok++;
+        } catch (e) {
+          failures[name + " [builder preview]"] = String((e as Error).stack ?? e);
+        }
+      }
     }
   }
   return { ok, failures };
@@ -303,9 +319,31 @@ window.renderSdf = async (output: number, size: number) => {
   const g = new GenSDF();
   new GenGraph().addGenerator(g);
   g.setSdfScene(sdfScenes()["2d"]);
-  const t = r.render(g.getShaderCode("uv", output, new GenContext()), size);
+  return renderToUrl(r, g.getShaderCode("uv", output, new GenContext()), size);
+};
+
+function renderToUrl(r: Renderer, sc: import("../src/engine/shader-code").ShaderCode, size: number, preview = true): string {
+  const t = r.render(sc, size, { preview });
   const c = document.createElement("canvas");
   c.width = c.height = size;
   c.getContext("2d")!.putImageData(r.toImageData(t), 0, 0);
   return c.toDataURL("image/png");
+}
+
+declare global {
+  interface Window {
+    renderSdfBuilder: (which: string, size: number) => Promise<string>;
+  }
+}
+/** the builder window's preview of one of the test scenes, as a PNG */
+window.renderSdfBuilder = async (which: string, size: number) => {
+  const r = await rp;
+  const g = new GenSDF();
+  g.editor = true;
+  new GenGraph().addGenerator(g);
+  const scene = sdfScenes()[which];
+  g.setSdfScene(scene);
+  const sel = scene[0].children[0].index;
+  const sc = which === "3d" ? sdfPreview3D(g, { yaw: 0.5, pitch: -0.3, dist: 3, target: [0, 0, 0] }, sel) : sdfPreview2D(g, { center: { x: 0.5, y: 0.5 }, scale: 1.2, style: 0 }, sel);
+  return renderToUrl(r, sc, size, false);
 };

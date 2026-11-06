@@ -62,6 +62,12 @@ if (mode === "all" || mode === "sdf") {
   for (const [k, v] of f) console.log(`  ${k}: ${v}`);
   if (f.length) failed = true;
 }
+if (mode === "sdfbuilder") {
+  const [which = "2d", size = "256", file = "sdfbuilder.png"] = process.argv.slice(3);
+  const url = await page.evaluate(([w, s]) => window.renderSdfBuilder(w, +s), [which, size]);
+  fs.writeFileSync(file, Buffer.from(url.split(",")[1], "base64"));
+  console.log("wrote", file);
+}
 if (mode === "sdfshot") {
   const [out = "0", size = "256", file = "sdf.png"] = process.argv.slice(3);
   const url = await page.evaluate(([o, s]) => window.renderSdf(+o, +s), [out, size]);
