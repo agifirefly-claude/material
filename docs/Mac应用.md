@@ -46,6 +46,8 @@ npm run electron:build -- --arm64
 npm run electron:build -- --mac zip
 ```
 
+构建脚本先自己下载 Electron 的 zip（放在 `release/electron-dist/`，下次直接用），用 `node_modules/electron/checksums.json` 里的 SHA-256 校验后交给 electron-builder（`electronDist`）。这样 electron-builder 不再去 GitHub 取 `SHASUMS256.txt`：Electron v45.2.3 的这个文件在 GitHub 上一直返回 504，导致打包失败。下载先试 GitHub，失败再试镜像（默认 npmmirror，可用环境变量 `ELECTRON_MIRROR` 指定）；不论从哪里下载，校验不通过的文件都会被丢弃。
+
 开发时直接运行（会先构建 `dist/`）：
 
 ```bash
@@ -135,7 +137,7 @@ xattr -dr com.apple.quarantine "/Applications/Material Pro.app"
 | `electron/main.cjs` | 主进程：窗口、`app://` 协议、对话框、菜单、文件关联、最近文件、单实例 |
 | `electron/preload.cjs` | 页面可用的 `window.materialPro` |
 | `electron/selftest.cjs`、`electron/smoke.mjs` | 自检 |
-| `electron/build-mac.mjs` | 构建脚本（处理签名） |
+| `electron/build-mac.mjs` | 构建脚本（下载并校验 Electron，处理签名） |
 | `electron-builder.yml` | 打包配置 |
 | `build/icon.svg`、`build/icon.png` | 应用图标（`node build/render-icon.mjs` 由 SVG 生成 PNG，打包时转成 .icns） |
 | `src/ui/platform.ts`、`src/ui/hostIntegration.ts` | 页面一侧：检测桥接、原地保存、菜单命令、Finder 打开的文件 |

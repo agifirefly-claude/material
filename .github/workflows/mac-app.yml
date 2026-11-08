@@ -4,6 +4,13 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+  # pull requests that change how the app is built
+  pull_request:
+    paths:
+      - "electron/**"
+      - "electron-builder.yml"
+      - "build/**"
+      - ".github/workflows/mac-app.yml"
   workflow_dispatch:
 
 permissions:
@@ -21,6 +28,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # electron/build-mac.mjs downloads and verifies the Electron zips into release/electron-dist: keep them between runs
+      - uses: actions/cache@v4
+        with:
+          path: release/electron-dist
+          key: electron-dist-${{ hashFiles('node_modules/electron/package.json') }}
       # unsigned (ad hoc) unless the signing secrets are set; notarized when the Apple ones are too (docs/Mac应用.md)
       - name: Build dmg and zip (arm64, x64)
         run: node electron/build-mac.mjs
